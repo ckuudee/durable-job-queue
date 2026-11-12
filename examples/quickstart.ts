@@ -4,7 +4,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JobStateError, Scheduler, SqliteStorage, type Job, type Storage } from "../src/index.js";
+import { setTimeout } from "node:timers/promises";
+import { Scheduler, SqliteStorage, Worker, type Job, type JobContext } from "../src/index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "jobq-example-"));
 const storage = new SqliteStorage({
@@ -49,64 +50,36 @@ scheduler.start(200);
 
 // --- Processing jobs ---------------------------------------------------------
 
-async function sendEmail(job: Job): Promise<void> {
+// The handler: resolve to complete the job, throw to fail it (it then retries
+// with backoff, or goes to the dead-letter queue after maxAttempts). The worker
+// claims jobs, keeps their leases alive with heartbeats, and records the result.
+async function sendEmail(job: Job, { signal }: JobContext): Promise<void> {
   const { to, template } = job.payload as { to: string; template: string };
-  await new Promise((resolve) => setTimeout(resolve, 20)); // pretend to call an email API
-  if (to.endsWith("@invalid")) throw new Error(`mailbox ${to} does not exist`);
+  // Pretend to call an email API. Passing `signal` on lets the call be cancelled
+  // if this worker loses the job or is shut down mid-send.
+  await setTimeout(20, undefined, { signal });
+  if (to.endsWith("@invalid")) {
+    log(`attempt ${job.attempts} of ${job.maxAttempts} for ${to} failed`);
+    throw new Error(`mailbox ${to} does not exist`);
+  }
   log(`sent "${template}" to ${to} (attempt ${job.attempts})`);
 }
 
-/**
- * Claim one job and run it. Returns false when nothing is ready. This is the
- * whole worker protocol: claim, heartbeat while working, then complete or fail.
- */
-async function workOnce(storage: Storage, queue: string, workerId: string): Promise<boolean> {
-  const job = await storage.claim(queue, workerId);
-  if (!job) return false;
-
-  // Keep the lease alive for long jobs. If this worker crashed instead, the
-  // lease would lapse and another worker would pick the job up.
-  const heartbeat = setInterval(() => {
-    storage.heartbeat(job.id, workerId).catch(() => {}); // a lost job surfaces in complete/fail
-  }, job.leaseMs / 3);
-
-  try {
-    let failure: unknown;
-    try {
-      await sendEmail(job);
-    } catch (err) {
-      failure = err;
-    }
-    if (failure === undefined) {
-      await storage.complete(job.id, workerId);
-    } else {
-      const after = await storage.fail(job.id, workerId, String(failure));
-      log(after.status === "dead" ? `gave up on job: ${after.error}` : `failed, will retry at +${after.runAt - Date.now()} ms`);
-    }
-  } catch (err) {
-    // Our lease lapsed and another worker took the job; it's theirs now.
-    if (!(err instanceof JobStateError)) throw err;
-    log(`lost job ${job.id} to another worker`);
-  } finally {
-    clearInterval(heartbeat);
-  }
-  return true;
-}
-
-// Two workers sharing the queue. Real workers loop forever; this demo stops after 2.5 s.
-const stopAt = Date.now() + 2_500;
-await Promise.all(
-  ["worker-1", "worker-2"].map(async (workerId) => {
-    while (Date.now() < stopAt) {
-      const didWork = await workOnce(storage, "email", workerId);
-      if (!didWork) await new Promise((resolve) => setTimeout(resolve, 50)); // idle: poll again shortly
-    }
-  }),
+// Two workers sharing the queue, as if in two processes. Each could also run
+// several jobs at once with `concurrency`.
+const workers = ["worker-1", "worker-2"].map(
+  (workerId) => new Worker(storage, { queue: "email", handler: sendEmail, workerId, pollIntervalMs: 50 }),
 );
+for (const worker of workers) worker.start();
+
+// Real workers run until the process is told to stop, e.g.
+//   process.on("SIGTERM", () => worker.stop({ timeoutMs: 30_000 }));
+// This demo stops after 2.5 s. stop() lets in-flight jobs finish first.
+await setTimeout(2_500);
+await Promise.all([scheduler.stop(), ...workers.map((worker) => worker.stop())]);
 
 // --- Inspecting failures ------------------------------------------------------
 
-await scheduler.stop();
 const dead = await storage.listDead("email");
 log(`dead-letter queue holds ${dead.length} job(s): ${dead.map((j) => j.error).join("; ")}`);
 // After fixing the cause, put a dead job back: await storage.requeueDead(dead[0].id);

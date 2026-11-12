@@ -15,5 +15,6 @@ it("runs the quickstart example end to end", async () => {
   expect(stdout).toContain('sent "welcome" to ada@example.com');
   expect(stdout).toContain('sent "tips" to ada@example.com');
   expect(stdout).toContain('sent "report" to ops@example.com');
-  expect(stdout).toContain("dead-letter queue holds 1 job(s)");
+  expect(stdout).toContain("attempt 2 of 2 for nobody@invalid failed");
+  expect(stdout).toContain("dead-letter queue holds 1 job(s): mailbox nobody@invalid does not exist");
 }, 30_000);

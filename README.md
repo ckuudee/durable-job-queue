@@ -11,6 +11,7 @@ Most web apps need to do slow or unreliable work (send email, call a third-party
 ## Features
 
 - **Durable storage**: jobs persist in a database and are claimed atomically, so no two workers run the same job at once. SQLite for a single machine, PostgreSQL (`FOR UPDATE SKIP LOCKED`) for many.
+- **Workers** with configurable concurrency, automatic heartbeats, cancellation when a job is lost, and graceful shutdown.
 - **Crash recovery**: a worker holds a job only for a lease it renews with heartbeats. If the worker dies, the lease lapses and another worker picks the job up.
 - **Retries with exponential backoff and jitter**, and a **dead-letter queue** for jobs that keep failing.
 - **Idempotency keys**, so retrying an enqueue after a timeout never creates a duplicate job.
@@ -32,13 +33,14 @@ npm run example
 
 ```text
     +0ms  enqueued welcome email; the retried enqueue returned the same job: true
-   +57ms  sent "welcome" to ada@example.com (attempt 1)
-   +58ms  failed, will retry at +70 ms
-  +213ms  gave up on job: Error: mailbox nobody@invalid does not exist
-  +337ms  sent "tips" to ada@example.com (attempt 1)
-  +618ms  sent "report" to ops@example.com (attempt 1)
- +1636ms  sent "report" to ops@example.com (attempt 1)
- +2571ms  dead-letter queue holds 1 job(s): Error: mailbox nobody@invalid does not exist
+   +59ms  sent "welcome" to ada@example.com (attempt 1)
+   +60ms  attempt 1 of 2 for nobody@invalid failed
+  +151ms  sent "report" to ops@example.com (attempt 1)
+  +152ms  attempt 2 of 2 for nobody@invalid failed
+  +367ms  sent "tips" to ada@example.com (attempt 1)
+ +1148ms  sent "report" to ops@example.com (attempt 1)
+ +2180ms  sent "report" to ops@example.com (attempt 1)
+ +2540ms  dead-letter queue holds 1 job(s): mailbox nobody@invalid does not exist
 ```
 
 The snippets below are condensed from that file. CI runs the example on every change, so an API change that breaks it fails the build.
@@ -79,24 +81,25 @@ Payloads can be any JSON-serializable value.
 
 ### Process jobs
 
-There is no built-in worker runner yet. A worker is a short loop around four calls: **claim** a job, **heartbeat** while working on it, then **complete** or **fail** it.
-
 ```ts
-const job = await storage.claim("email", workerId);   // null when nothing is ready
-if (job) {
-  const beat = setInterval(() => storage.heartbeat(job.id, workerId).catch(() => {}), job.leaseMs / 3);
-  try {
-    await sendEmail(job.payload).then(
-      () => storage.complete(job.id, workerId),
-      (err) => storage.fail(job.id, workerId, String(err)), // retry with backoff, or dead after maxAttempts
-    );
-  } finally {
-    clearInterval(beat);
-  }
-}
+import { Worker } from "durable-job-queue";
+
+const worker = new Worker(storage, {
+  queue: "email",
+  concurrency: 5,                       // jobs at once in this process (default 1)
+  handler: async (job, { signal }) => {
+    await sendEmail(job.payload, { signal });   // throw to fail: retried with backoff, then dead
+  },
+});
+worker.start();
+
+// Graceful shutdown: stop claiming, let in-flight jobs finish (up to 30 s).
+process.on("SIGTERM", () => worker.stop({ timeoutMs: 30_000 }));
 ```
 
-If the worker's lease lapsed and another worker took the job, `complete`, `fail` and `heartbeat` throw `JobStateError`: the job belongs to someone else now. The example shows how to handle that.
+The worker claims jobs, renews each job's lease with heartbeats while the handler runs, then completes or fails the job. `signal` is an `AbortSignal` that fires if the worker loses the job (its lease lapsed and another worker took it) or a shutdown times out. Long handlers should pass it to `fetch()` and similar calls: the result will not be recorded, and the job runs again elsewhere. Errors the worker survives, such as the database being briefly unreachable, go to an optional `onError` callback.
+
+Under the hood a worker is a loop around four storage calls (`claim`, `heartbeat`, then `complete` or `fail`), which you can also call directly.
 
 ### Dead jobs
 
@@ -144,6 +147,7 @@ TypeScript, Node.js 22+, SQLite (better-sqlite3) and PostgreSQL (node-postgres) 
 - [x] Tooling and CI
 - [x] Storage interface and SQLite backend
 - [x] Enqueue, atomic claim, complete/fail
+- [x] Worker with concurrency and graceful shutdown
 - [x] Retries, backoff, dead-letter queue
 - [x] Leases and crash recovery
 - [x] Delayed jobs
