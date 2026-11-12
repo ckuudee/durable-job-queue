@@ -162,6 +162,81 @@ export function storageContract(
         }));
     });
 
+    describe("delayed jobs", () => {
+      it("holds a job back until delayMs has passed", () =>
+        withStore(async (s, clock) => {
+          const job = await s.enqueue({ queue: "q", payload: 1, delayMs: 5_000 });
+          expect(job).toMatchObject({ status: "pending", runAt: START + 5_000, createdAt: START });
+
+          clock.t = START + 4_999;
+          expect(await s.claim("q", "w1")).toBeNull();
+          clock.t = START + 5_000;
+          expect(await s.claim("q", "w1")).toMatchObject({ id: job.id, status: "running" });
+        }));
+
+      it("holds a job back until an absolute runAt, given as epoch ms or a Date", () =>
+        withStore(async (s, clock) => {
+          const a = await s.enqueue({ queue: "q", payload: "a", runAt: START + 2_000 });
+          const b = await s.enqueue({ queue: "q", payload: "b", runAt: new Date(START + 3_000) });
+          expect(b.runAt).toBe(START + 3_000);
+
+          clock.t = START + 2_000;
+          expect((await s.claim("q", "w1"))?.id).toBe(a.id);
+          expect(await s.claim("q", "w1")).toBeNull();
+          clock.t = START + 3_000;
+          expect((await s.claim("q", "w1"))?.id).toBe(b.id);
+        }));
+
+      it("treats a runAt in the past, or a zero delay, as ready now", () =>
+        withStore(async (s) => {
+          const past = await s.enqueue({ queue: "q", payload: 1, runAt: START - 60_000 });
+          const zero = await s.enqueue({ queue: "q", payload: 2, delayMs: 0 });
+          expect((await s.claim("q", "w1"))?.id).toBe(past.id);
+          expect((await s.claim("q", "w1"))?.id).toBe(zero.id);
+        }));
+
+      it("doesn't let a delayed job hold up ready jobs behind it", () =>
+        withStore(async (s) => {
+          await s.enqueue({ queue: "q", payload: "later", delayMs: 60_000 });
+          const now = await s.enqueue({ queue: "q", payload: "now" });
+          expect((await s.claim("q", "w1"))?.id).toBe(now.id);
+          expect(await s.claim("q", "w1")).toBeNull();
+        }));
+
+      it("runs due jobs in order of their scheduled time, not enqueue order", () =>
+        withStore(async (s, clock) => {
+          const late = await s.enqueue({ queue: "q", payload: "late", delayMs: 2_000 });
+          const early = await s.enqueue({ queue: "q", payload: "early", delayMs: 1_000 });
+          clock.t = START + 10_000;
+          expect((await s.claim("q", "w1"))?.id).toBe(early.id);
+          expect((await s.claim("q", "w1"))?.id).toBe(late.id);
+        }));
+
+      it("rejects both options at once, or an invalid time or delay", () =>
+        withStore(async (s) => {
+          const bad = [
+            { runAt: START, delayMs: 0 },
+            { delayMs: -1 },
+            { delayMs: 1.5 },
+            { delayMs: Number.POSITIVE_INFINITY },
+            { runAt: Number.NaN },
+            { runAt: new Date("not a date") },
+          ];
+          for (const options of bad) {
+            await expect(s.enqueue({ queue: "q", payload: 1, ...options })).rejects.toThrow(RangeError);
+          }
+          expect(await s.claim("q", "w1")).toBeNull(); // nothing was stored
+        }));
+
+      it("keeps the first call's schedule when an idempotency key is reused", () =>
+        withStore(async (s) => {
+          await s.enqueue({ queue: "q", payload: 1, delayMs: 5_000, idempotencyKey: "k" });
+          const again = await s.enqueue({ queue: "q", payload: 1, delayMs: 0, idempotencyKey: "k" });
+          expect(again.runAt).toBe(START + 5_000);
+          expect(await s.claim("q", "w1")).toBeNull();
+        }));
+    });
+
     describe("claim", () => {
       it("returns null when claiming from an empty queue", () =>
         withStore(async (s) => {
