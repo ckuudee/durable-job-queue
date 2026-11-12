@@ -8,6 +8,22 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A real PostgreSQL server for the Postgres backend's tests.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: jobq
+          POSTGRES_PASSWORD: jobq
+          POSTGRES_DB: jobq
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobq"
+          --health-interval 2s
+          --health-retries 15
+    env:
+      JOBQ_PG_URL: postgres://jobq:jobq@localhost:5432/jobq
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

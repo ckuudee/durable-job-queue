@@ -35,9 +35,21 @@ TypeScript, Node.js, a SQL database (SQLite first behind a storage interface; Po
 - [x] Leases and crash recovery
 - [ ] Delayed and recurring jobs
 - [x] Idempotency keys
-- [ ] PostgreSQL backend
+- [x] PostgreSQL backend
 - [ ] Metrics and dashboard
 - [ ] Load tests and design doc
+
+## Running the PostgreSQL tests
+
+The PostgreSQL backend runs the same contract tests as SQLite, plus a
+concurrency test, against a real server. They are skipped unless `JOBQ_PG_URL`
+is set; CI always runs them. Locally (PowerShell, with Docker running):
+
+```powershell
+docker compose up -d
+$env:JOBQ_PG_URL = "postgres://jobq:jobq@localhost:5432/jobq"
+npm test
+```
 
 ## License
 
