@@ -1,5 +1,8 @@
 import type { Job, NewJob } from "./types.js";
 
+/** Lease length for jobs that set none and stores that configure none. */
+export const DEFAULT_LEASE_MS = 30_000;
+
 /** Thrown when a worker acts on a job it does not hold, or a job is in the wrong state. */
 export class JobStateError extends Error {
   constructor(message: string) {

@@ -9,11 +9,10 @@ import {
   type RetryPolicy,
 } from "./backoff.js";
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
-import { IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
+import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob } from "./types.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
-export const DEFAULT_LEASE_MS = 30_000;
 
 // Bump when SCHEMA_SQL changes. There are no migrations yet: a database file
 // with a different version is rejected with a clear error instead of failing
