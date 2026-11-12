@@ -34,7 +34,7 @@ TypeScript, Node.js, a SQL database (SQLite first behind a storage interface; Po
 - [x] Retries, backoff, dead-letter queue
 - [x] Leases and crash recovery
 - [x] Delayed jobs
-- [ ] Recurring jobs
+- [x] Recurring jobs
 - [x] Idempotency keys
 - [x] PostgreSQL backend
 - [ ] Metrics and dashboard
