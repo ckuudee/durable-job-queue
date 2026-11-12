@@ -5,9 +5,12 @@ import { JobStateError, type RetryPolicy, type Storage } from "../src/index.js";
 export interface StorageTestOptions {
   now: () => number;
   retry: Partial<RetryPolicy>;
+  /** Default lease length for jobs that don't set their own. */
+  leaseMs: number;
 }
 
 const START = 1_000_000;
+const LEASE = 10_000;
 // No jitter: delays are exactly 1s, 2s, 4s, ... so tests can assert precise times.
 const RETRY: Partial<RetryPolicy> = { baseDelayMs: 1_000, factor: 2, maxDelayMs: 60_000, jitter: false };
 
@@ -22,7 +25,7 @@ export function storageContract(
   describe(`${name} storage contract`, () => {
     async function withStore(fn: (s: Storage, clock: { t: number }) => Promise<void>): Promise<void> {
       const clock = { t: START };
-      const store = await create({ now: () => clock.t, retry: RETRY });
+      const store = await create({ now: () => clock.t, retry: RETRY, leaseMs: LEASE });
       try {
         await fn(store, clock);
       } finally {
@@ -42,16 +45,20 @@ export function storageContract(
             maxAttempts: 3,
             workerId: null,
             runAt: START,
+            leaseMs: LEASE,
+            leaseUntil: null,
           });
           expect(await s.get(job.id)).toEqual(job);
         }));
 
-      it("rejects an empty queue name, bad maxAttempts and non-JSON payloads", () =>
+      it("rejects an empty queue name, bad maxAttempts or leaseMs, and non-JSON payloads", () =>
         withStore(async (s) => {
           await expect(s.enqueue({ queue: "  ", payload: 1 })).rejects.toThrow(RangeError);
           await expect(s.enqueue({ queue: "q", payload: undefined })).rejects.toThrow(TypeError);
           await expect(s.enqueue({ queue: "q", payload: 1, maxAttempts: 0 })).rejects.toThrow(RangeError);
           await expect(s.enqueue({ queue: "q", payload: 1, maxAttempts: 1.5 })).rejects.toThrow(RangeError);
+          await expect(s.enqueue({ queue: "q", payload: 1, leaseMs: 0 })).rejects.toThrow(RangeError);
+          await expect(s.enqueue({ queue: "q", payload: 1, leaseMs: 1.5 })).rejects.toThrow(RangeError);
         }));
     });
 
@@ -192,6 +199,158 @@ export function storageContract(
           await s.claim("q", "w1");
           await expect(s.fail(id, "w2", "x")).rejects.toThrow(JobStateError);
           expect(await s.get(id)).toMatchObject({ status: "running", workerId: "w1", attempts: 1 });
+        }));
+    });
+
+    describe("leases and crash recovery", () => {
+      it("gives a claimed job a lease, using the job's own leaseMs when set", () =>
+        withStore(async (s) => {
+          await s.enqueue({ queue: "default-lease", payload: 1 });
+          await s.enqueue({ queue: "short-lease", payload: 1, leaseMs: 2_000 });
+          expect((await s.claim("default-lease", "w1"))?.leaseUntil).toBe(START + LEASE);
+          expect((await s.claim("short-lease", "w1"))?.leaseUntil).toBe(START + 2_000);
+        }));
+
+      it("clears the lease when a job completes, retries or dies", () =>
+        withStore(async (s) => {
+          const done = await s.enqueue({ queue: "q", payload: "done" });
+          await s.claim("q", "w1");
+          await s.complete(done.id, "w1");
+          expect((await s.get(done.id))?.leaseUntil).toBeNull();
+
+          const retry = await s.enqueue({ queue: "q", payload: "retry" });
+          await s.claim("q", "w1");
+          expect((await s.fail(retry.id, "w1", "x")).leaseUntil).toBeNull();
+
+          const dead = await s.enqueue({ queue: "q", payload: "dead", maxAttempts: 1 });
+          await s.claim("q", "w1");
+          expect((await s.fail(dead.id, "w1", "x")).leaseUntil).toBeNull();
+        }));
+
+      it("extends the lease on heartbeat", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+          clock.t += 6_000;
+          expect(await s.heartbeat(id, "w1")).toMatchObject({ status: "running", leaseUntil: clock.t + LEASE });
+        }));
+
+      it("refuses a heartbeat from a different worker or for a job that is not running", () =>
+        withStore(async (s) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await expect(s.heartbeat(id, "w1")).rejects.toThrow(JobStateError); // pending
+
+          await s.claim("q", "w1");
+          await expect(s.heartbeat(id, "w2")).rejects.toThrow(JobStateError); // wrong worker
+        }));
+
+      it("keeps a job from other workers until its lease lapses", () =>
+        withStore(async (s, clock) => {
+          await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+
+          clock.t = START + LEASE - 1;
+          expect(await s.claim("q", "w2")).toBeNull();
+        }));
+
+      it("hands a job to another worker once its lease lapses", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+
+          clock.t = START + LEASE;
+          const reclaimed = await s.claim("q", "w2");
+          expect(reclaimed).toMatchObject({
+            id,
+            status: "running",
+            workerId: "w2",
+            attempts: 2,
+            leaseUntil: clock.t + LEASE,
+          });
+          expect(reclaimed?.error).toMatch(/lease expired \(worker w1\)/);
+        }));
+
+      it("keeps a job away from others for as long as its worker heartbeats", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+
+          clock.t = START + 9_000;
+          await s.heartbeat(id, "w1"); // lease now runs to START + 19_000
+          clock.t = START + LEASE;
+          expect(await s.claim("q", "w2")).toBeNull();
+          clock.t = START + 18_999;
+          expect(await s.claim("q", "w2")).toBeNull();
+
+          clock.t = START + 19_000;
+          expect(await s.claim("q", "w2")).toMatchObject({ id, workerId: "w2" });
+        }));
+
+      it("rejects a zombie worker whose job was reclaimed", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "zombie");
+
+          clock.t = START + LEASE;
+          await s.claim("q", "w2"); // takes over
+
+          await expect(s.complete(id, "zombie")).rejects.toThrow(JobStateError);
+          await expect(s.fail(id, "zombie", "late")).rejects.toThrow(JobStateError);
+          await expect(s.heartbeat(id, "zombie")).rejects.toThrow(JobStateError);
+          expect(await s.get(id)).toMatchObject({ status: "running", workerId: "w2" });
+
+          await s.complete(id, "w2");
+          expect(await s.get(id)).toMatchObject({ status: "completed", workerId: "w2" });
+        }));
+
+      it("counts an abandoned attempt, and kills a job that keeps getting abandoned", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1, maxAttempts: 2 });
+
+          await s.claim("q", "w1"); // attempt 1, abandoned
+          clock.t += LEASE;
+          expect(await s.claim("q", "w2")).toMatchObject({ attempts: 2 }); // attempt 2, abandoned
+          clock.t += LEASE;
+
+          expect(await s.claim("q", "w3")).toBeNull(); // out of attempts
+          expect(await s.get(id)).toMatchObject({
+            status: "dead",
+            attempts: 2,
+            finishedAt: clock.t,
+            leaseUntil: null,
+          });
+          expect((await s.get(id))?.error).toMatch(/lease expired \(worker w2\) after 2 attempts/);
+          expect(await s.listDead("q")).toHaveLength(1);
+        }));
+
+      it("still accepts a lapsed worker's result if nobody has taken the job yet", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+
+          clock.t += 60_000; // lease long gone, but no other worker has claimed it
+          await s.complete(id, "w1");
+          expect(await s.get(id)).toMatchObject({ status: "completed" });
+          expect(await s.claim("q", "w2")).toBeNull();
+        }));
+
+      it("lets a lapsed worker heartbeat its way back if nobody has taken the job yet", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+
+          clock.t += 15_000;
+          await s.heartbeat(id, "w1");
+          expect(await s.claim("q", "w2")).toBeNull();
+        }));
+
+      it("only recovers abandoned jobs in the queue being claimed", () =>
+        withStore(async (s, clock) => {
+          await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+
+          clock.t += LEASE;
+          expect(await s.claim("other", "w2")).toBeNull();
         }));
     });
 
