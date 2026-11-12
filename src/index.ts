@@ -5,6 +5,12 @@ export { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage
 export { SqliteStorage, type SqliteStorageOptions } from "./sqlite-storage.js";
 export { PostgresStorage, type PostgresStorageOptions } from "./postgres-storage.js";
 export {
+  MAX_SCHEDULE_NAME_LENGTH,
+  Scheduler,
+  type RecurringJob,
+  type SchedulerOptions,
+} from "./scheduler.js";
+export {
   DEFAULT_RETRY_POLICY,
   computeBackoff,
   validateRetryPolicy,
