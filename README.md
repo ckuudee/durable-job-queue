@@ -32,7 +32,7 @@ TypeScript, Node.js, a SQL database (SQLite first behind a storage interface; Po
 - [x] Storage interface and SQLite backend
 - [x] Enqueue, atomic claim, complete/fail
 - [x] Retries, backoff, dead-letter queue
-- [ ] Leases and crash recovery
+- [x] Leases and crash recovery
 - [ ] Delayed and recurring jobs
 - [ ] Idempotency keys
 - [ ] PostgreSQL backend
