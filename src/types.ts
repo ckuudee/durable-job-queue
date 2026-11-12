@@ -24,6 +24,12 @@ export interface Job {
   createdAt: number;
   /** Earliest time a pending job may be claimed. Pushed forward by retry backoff. */
   runAt: number;
+  /**
+   * Caller-chosen key that makes enqueueing safe to repeat, unique within the
+   * queue. Also stable across every attempt, so a handler can pass it to a
+   * downstream API that supports idempotency keys.
+   */
+  idempotencyKey: string | null;
   /** How long a claim or heartbeat extends the worker's hold on the job. */
   leaseMs: number;
   /** While running: when the hold lapses and another worker may take the job. Null otherwise. */
@@ -39,4 +45,10 @@ export interface NewJob {
   maxAttempts?: number;
   /** Lease length for this job in milliseconds. Defaults to the store's setting (30 s). */
   leaseMs?: number;
+  /**
+   * Makes enqueue idempotent within `queue`: if a job with this key already
+   * exists (in any state), that job is returned and nothing new is created.
+   * Reusing a key with a different payload throws IdempotencyConflictError.
+   */
+  idempotencyKey?: string;
 }

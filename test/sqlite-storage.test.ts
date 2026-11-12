@@ -86,6 +86,6 @@ describe("SqliteStorage schema version", () => {
     old.exec("CREATE TABLE jobs (id TEXT PRIMARY KEY, status TEXT)"); // pre-versioning layout
     old.close();
 
-    expect(() => new SqliteStorage({ path })).toThrow(/schema version 0, expected 3.*delete the file/);
+    expect(() => new SqliteStorage({ path })).toThrow(/schema version 0, expected \d+.*delete the file/);
   });
 });

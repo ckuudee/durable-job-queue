@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JobStateError, type RetryPolicy, type Storage } from "../src/index.js";
+import { IdempotencyConflictError, JobStateError, type RetryPolicy, type Storage } from "../src/index.js";
 
 /** What a backend factory must honor so the contract can control time and backoff. */
 export interface StorageTestOptions {
@@ -47,6 +47,7 @@ export function storageContract(
             runAt: START,
             leaseMs: LEASE,
             leaseUntil: null,
+            idempotencyKey: null,
           });
           expect(await s.get(job.id)).toEqual(job);
         }));
@@ -59,6 +60,105 @@ export function storageContract(
           await expect(s.enqueue({ queue: "q", payload: 1, maxAttempts: 1.5 })).rejects.toThrow(RangeError);
           await expect(s.enqueue({ queue: "q", payload: 1, leaseMs: 0 })).rejects.toThrow(RangeError);
           await expect(s.enqueue({ queue: "q", payload: 1, leaseMs: 1.5 })).rejects.toThrow(RangeError);
+        }));
+    });
+
+    describe("idempotency keys", () => {
+      it("returns the existing job instead of creating a duplicate", () =>
+        withStore(async (s) => {
+          const first = await s.enqueue({ queue: "q", payload: { order: 7 }, idempotencyKey: "order-7" });
+          const again = await s.enqueue({ queue: "q", payload: { order: 7 }, idempotencyKey: "order-7" });
+
+          expect(again).toEqual(first);
+          expect(first.idempotencyKey).toBe("order-7");
+          expect(await s.claim("q", "w1")).toMatchObject({ id: first.id });
+          expect(await s.claim("q", "w1")).toBeNull(); // only one job was ever created
+        }));
+
+      it("never deduplicates jobs that have no key", () =>
+        withStore(async (s) => {
+          const a = await s.enqueue({ queue: "q", payload: "same" });
+          const b = await s.enqueue({ queue: "q", payload: "same" });
+          expect(a.id).not.toBe(b.id);
+        }));
+
+      it("keeps different keys separate", () =>
+        withStore(async (s) => {
+          const a = await s.enqueue({ queue: "q", payload: 1, idempotencyKey: "a" });
+          const b = await s.enqueue({ queue: "q", payload: 1, idempotencyKey: "b" });
+          expect(a.id).not.toBe(b.id);
+        }));
+
+      it("scopes keys to a queue", () =>
+        withStore(async (s) => {
+          const a = await s.enqueue({ queue: "emails", payload: 1, idempotencyKey: "k" });
+          const b = await s.enqueue({ queue: "billing", payload: 1, idempotencyKey: "k" });
+          expect(a.id).not.toBe(b.id);
+        }));
+
+      it("returns the job's current state, so a finished job is not run again", () =>
+        withStore(async (s) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1, idempotencyKey: "k" });
+          await s.claim("q", "w1");
+          await s.complete(id, "w1");
+
+          expect(await s.enqueue({ queue: "q", payload: 1, idempotencyKey: "k" })).toMatchObject({
+            id,
+            status: "completed",
+          });
+          expect(await s.claim("q", "w1")).toBeNull();
+        }));
+
+      it("does not resurrect a dead job; requeueDead is the explicit way back", () =>
+        withStore(async (s) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1, maxAttempts: 1, idempotencyKey: "k" });
+          await s.claim("q", "w1");
+          await s.fail(id, "w1", "boom");
+
+          expect(await s.enqueue({ queue: "q", payload: 1, idempotencyKey: "k" })).toMatchObject({
+            id,
+            status: "dead",
+          });
+          expect(await s.claim("q", "w1")).toBeNull();
+        }));
+
+      it("keeps the first call's maxAttempts and leaseMs", () =>
+        withStore(async (s) => {
+          await s.enqueue({ queue: "q", payload: 1, maxAttempts: 5, leaseMs: 2_000, idempotencyKey: "k" });
+          const again = await s.enqueue({ queue: "q", payload: 1, maxAttempts: 1, leaseMs: 9_000, idempotencyKey: "k" });
+          expect(again).toMatchObject({ maxAttempts: 5, leaseMs: 2_000 });
+        }));
+
+      it("rejects a reused key with a different payload", () =>
+        withStore(async (s) => {
+          await s.enqueue({ queue: "q", payload: { amount: 100 }, idempotencyKey: "charge-1" });
+          await expect(
+            s.enqueue({ queue: "q", payload: { amount: 999 }, idempotencyKey: "charge-1" }),
+          ).rejects.toThrow(IdempotencyConflictError);
+        }));
+
+      it("treats payloads that differ only in object key order as the same", () =>
+        withStore(async (s) => {
+          const first = await s.enqueue({ queue: "q", payload: { a: 1, b: { c: 2, d: [3, { e: 4, f: 5 }] } }, idempotencyKey: "k" });
+          const again = await s.enqueue({ queue: "q", payload: { b: { d: [3, { f: 5, e: 4 }], c: 2 }, a: 1 }, idempotencyKey: "k" });
+          expect(again.id).toBe(first.id);
+        }));
+
+      it("rejects blank or oversized keys", () =>
+        withStore(async (s) => {
+          await expect(s.enqueue({ queue: "q", payload: 1, idempotencyKey: "" })).rejects.toThrow(RangeError);
+          await expect(s.enqueue({ queue: "q", payload: 1, idempotencyKey: "   " })).rejects.toThrow(RangeError);
+          await expect(
+            s.enqueue({ queue: "q", payload: 1, idempotencyKey: "x".repeat(256) }),
+          ).rejects.toThrow(RangeError);
+        }));
+
+      it("creates exactly one job when many callers race with the same key", () =>
+        withStore(async (s) => {
+          const jobs = await Promise.all(
+            Array.from({ length: 10 }, () => s.enqueue({ queue: "q", payload: 1, idempotencyKey: "k" })),
+          );
+          expect(new Set(jobs.map((j) => j.id)).size).toBe(1);
         }));
     });
 
