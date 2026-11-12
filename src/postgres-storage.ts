@@ -7,6 +7,7 @@ import {
   type RetryPolicy,
 } from "./backoff.js";
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
+import { resolveRunAt } from "./schedule.js";
 import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob } from "./types.js";
 
@@ -250,6 +251,8 @@ export class PostgresStorage implements Storage {
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     leaseMs = this.defaultLeaseMs,
     idempotencyKey,
+    runAt,
+    delayMs,
   }: NewJob): Promise<Job> {
     if (queue.trim() === "") throw new RangeError("queue must be a non-empty string");
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
@@ -266,13 +269,14 @@ export class PostgresStorage implements Storage {
     // right now, PostgreSQL waits for it to finish and then inserts nothing, so
     // exactly one of any number of concurrent callers creates the job.
     const now = this.now();
+    const scheduledAt = resolveRunAt(now, runAt, delayMs);
     const inserted = await this.pool.query<PgRow>(
       `INSERT INTO ${this.jobs}
          (id, queue, payload, status, max_attempts, created_at, run_at, lease_ms, idempotency_key)
-       VALUES ($1, $2, $3::jsonb, 'pending', $4, $5::bigint, $5::bigint, $6, $7)
+       VALUES ($1, $2, $3::jsonb, 'pending', $4, $5::bigint, $6::bigint, $7, $8)
        ON CONFLICT (queue, idempotency_key) DO NOTHING
        RETURNING *`,
-      [randomUUID(), queue, json, maxAttempts, now, leaseMs, idempotencyKey ?? null],
+      [randomUUID(), queue, json, maxAttempts, now, scheduledAt, leaseMs, idempotencyKey ?? null],
     );
     const created = inserted.rows[0];
     if (created) return toJob(created);

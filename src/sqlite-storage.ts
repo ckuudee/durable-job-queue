@@ -9,6 +9,7 @@ import {
   type RetryPolicy,
 } from "./backoff.js";
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
+import { resolveRunAt } from "./schedule.js";
 import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob } from "./types.js";
 
@@ -284,6 +285,8 @@ export class SqliteStorage implements Storage {
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     leaseMs = this.defaultLeaseMs,
     idempotencyKey,
+    runAt,
+    delayMs,
   }: NewJob): Promise<Job> {
     if (queue.trim() === "") throw new RangeError("queue must be a non-empty string");
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
@@ -297,7 +300,7 @@ export class SqliteStorage implements Storage {
     const id = randomUUID();
     const now = this.now();
     const { changes } = this.insertJob.run(
-      id, queue, json, maxAttempts, now, now, leaseMs, idempotencyKey ?? null,
+      id, queue, json, maxAttempts, now, resolveRunAt(now, runAt, delayMs), leaseMs, idempotencyKey ?? null,
     );
     if (changes === 1) return toJob(this.selectById.get(id) as JobRow);
 

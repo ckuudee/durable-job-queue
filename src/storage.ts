@@ -39,6 +39,9 @@ export interface Storage {
    * including completed or dead, and creates nothing: a producer that retries
    * after a timeout cannot cause a duplicate. The first call's `maxAttempts` and
    * `leaseMs` win. Exactly one of any number of concurrent callers creates the job.
+   *
+   * With `runAt` or `delayMs` the job is delayed: `claim` ignores it until that
+   * time. With an idempotency key, the first call's schedule wins too.
    */
   enqueue(input: NewJob): Promise<Job>;
 

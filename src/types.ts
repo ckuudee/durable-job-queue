@@ -46,6 +46,13 @@ export interface NewJob {
   /** Lease length for this job in milliseconds. Defaults to the store's setting (30 s). */
   leaseMs?: number;
   /**
+   * Don't run the job before this time (epoch ms or a Date). A time in the past
+   * means "run now". Mutually exclusive with `delayMs`.
+   */
+  runAt?: number | Date;
+  /** Don't run the job until this many milliseconds from now. Mutually exclusive with `runAt`. */
+  delayMs?: number;
+  /**
    * Makes enqueue idempotent within `queue`: if a job with this key already
    * exists (in any state), that job is returned and nothing new is created.
    * Reusing a key with a different payload throws IdempotencyConflictError.
