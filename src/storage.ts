@@ -1,6 +1,6 @@
 import type { Job, NewJob } from "./types.js";
 
-/** Thrown when a worker acts on a job it does not hold (wrong worker, or not running). */
+/** Thrown when a worker acts on a job it does not hold, or a job is in the wrong state. */
 export class JobStateError extends Error {
   constructor(message: string) {
     super(message);
@@ -20,16 +20,28 @@ export interface Storage {
   enqueue(input: NewJob): Promise<Job>;
 
   /**
-   * Atomically take the oldest pending job in `queue` for `workerId`, moving it
-   * to `running`. Returns null when nothing is pending.
+   * Atomically take the oldest ready job in `queue` for `workerId`, moving it
+   * to `running`. A job is ready when it is pending and its `runAt` has passed.
+   * Returns null when nothing is ready.
    */
   claim(queue: string, workerId: string): Promise<Job | null>;
 
   /** Mark a running job done. Throws JobStateError unless `workerId` holds it. */
   complete(id: string, workerId: string): Promise<void>;
 
-  /** Mark a running job failed. Throws JobStateError unless `workerId` holds it. */
-  fail(id: string, workerId: string, error: string): Promise<void>;
+  /**
+   * Record a failed attempt. If attempts remain, the job returns to `pending`
+   * with `runAt` pushed back by the retry backoff; otherwise it becomes `dead`.
+   * Returns the updated job so the caller can see which happened. Throws
+   * JobStateError unless `workerId` holds the job.
+   */
+  fail(id: string, workerId: string, error: string): Promise<Job>;
+
+  /** Dead jobs in `queue`, oldest failure first. */
+  listDead(queue: string, limit?: number): Promise<Job[]>;
+
+  /** Put a dead job back in the queue with a fresh attempt count. Throws JobStateError unless it is dead. */
+  requeueDead(id: string): Promise<Job>;
 
   get(id: string): Promise<Job | null>;
 
