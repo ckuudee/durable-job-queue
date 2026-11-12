@@ -28,9 +28,9 @@ TypeScript, Node.js, a SQL database (SQLite first behind a storage interface; Po
 
 ## Roadmap
 
-- [ ] Tooling and CI
-- [ ] Storage interface and SQLite backend
-- [ ] Enqueue, atomic claim, complete/fail
+- [x] Tooling and CI
+- [x] Storage interface and SQLite backend
+- [x] Enqueue, atomic claim, complete/fail
 - [ ] Retries, backoff, dead-letter queue
 - [ ] Leases and crash recovery
 - [ ] Delayed and recurring jobs

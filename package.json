@@ -21,6 +21,7 @@
   "type": "module",
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.6",
     "eslint": "^9.39.5",
     "tsx": "^4.23.15",
@@ -30,5 +31,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
   }
 }
