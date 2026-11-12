@@ -167,7 +167,7 @@ The PostgreSQL backend runs the same contract tests as SQLite, plus a concurrenc
 
 ```powershell
 docker compose up -d
-$env:JOBQ_PG_URL = "postgres://jobq:jobq@localhost:5432/jobq"
+$env:JOBQ_PG_URL = "postgres://jobq:jobq@127.0.0.1:5432/jobq"
 npm test
 ```
 

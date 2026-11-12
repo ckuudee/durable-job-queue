@@ -23,7 +23,7 @@ jobs:
           --health-interval 2s
           --health-retries 15
     env:
-      JOBQ_PG_URL: postgres://jobq:jobq@localhost:5432/jobq
+      JOBQ_PG_URL: postgres://jobq:jobq@127.0.0.1:5432/jobq
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

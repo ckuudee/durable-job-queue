@@ -5,7 +5,7 @@ import { PostgresStorage, type PostgresStorageOptions } from "../src/index.js";
 import { storageContract } from "./storage-contract.js";
 
 // These tests need a real PostgreSQL server, e.g. the one in docker-compose.yml:
-//   JOBQ_PG_URL=postgres://jobq:jobq@localhost:5432/jobq
+//   JOBQ_PG_URL=postgres://jobq:jobq@127.0.0.1:5432/jobq
 // Without it they are skipped, so `npm test` still works on a machine with no
 // database. CI always sets it.
 const url = process.env.JOBQ_PG_URL;

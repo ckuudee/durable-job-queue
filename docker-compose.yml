@@ -1,8 +1,10 @@
 # Local PostgreSQL for the Postgres backend's tests:
 #   docker compose up -d
-#   $env:JOBQ_PG_URL = "postgres://jobq:jobq@localhost:5432/jobq"; npm test   # PowerShell
+#   $env:JOBQ_PG_URL = "postgres://jobq:jobq@127.0.0.1:5432/jobq"; npm test   # PowerShell
 # The port is bound to 127.0.0.1 only, so the database (and its throwaway
 # password) is not reachable from other machines on your network.
+# Connect with 127.0.0.1, not localhost: on Windows, localhost can resolve to
+# the IPv6 address ::1 first, where nothing is listening.
 services:
   postgres:
     image: postgres:17
