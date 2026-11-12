@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "example": "tsx examples/quickstart.ts"
   },
   "keywords": [
     "job-queue",
