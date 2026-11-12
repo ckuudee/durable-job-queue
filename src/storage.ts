@@ -8,6 +8,14 @@ export class JobStateError extends Error {
   }
 }
 
+/** Thrown when an idempotency key is reused with a different payload: almost certainly a caller bug. */
+export class IdempotencyConflictError extends Error {
+  constructor(queue: string, key: string) {
+    super(`idempotency key "${key}" in queue "${queue}" was already used with a different payload`);
+    this.name = "IdempotencyConflictError";
+  }
+}
+
 /**
  * Persistence contract for the queue. Methods are async so a networked backend
  * (PostgreSQL) can implement the same interface as the embedded SQLite one.
@@ -22,7 +30,13 @@ export class JobStateError extends Error {
  *   longer complete, fail or heartbeat it: those throw JobStateError.
  */
 export interface Storage {
-  /** Add a job in `pending` state. */
+  /**
+   * Add a job in `pending` state. With an `idempotencyKey`, a repeat call for
+   * the same (queue, key) returns the existing job in whatever state it is now,
+   * including completed or dead, and creates nothing: a producer that retries
+   * after a timeout cannot cause a duplicate. The first call's `maxAttempts` and
+   * `leaseMs` win. Exactly one of any number of concurrent callers creates the job.
+   */
   enqueue(input: NewJob): Promise<Job>;
 
   /**

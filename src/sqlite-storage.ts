@@ -8,7 +8,8 @@ import {
   validateRetryPolicy,
   type RetryPolicy,
 } from "./backoff.js";
-import { JobStateError, type Storage } from "./storage.js";
+import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
+import { IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob } from "./types.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -17,7 +18,7 @@ export const DEFAULT_LEASE_MS = 30_000;
 // Bump when SCHEMA_SQL changes. There are no migrations yet: a database file
 // with a different version is rejected with a clear error instead of failing
 // later with a confusing "no such column".
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA_SQL = `
 CREATE TABLE jobs (
@@ -32,6 +33,7 @@ CREATE TABLE jobs (
   error        TEXT,
   created_at   INTEGER NOT NULL,
   run_at       INTEGER NOT NULL,                   -- earliest claim time (retry backoff)
+  idempotency_key TEXT,                            -- NULL = no deduplication
   lease_ms     INTEGER NOT NULL CHECK (lease_ms >= 1),
   lease_until  INTEGER,                            -- set only while running
   claimed_at   INTEGER,
@@ -40,6 +42,11 @@ CREATE TABLE jobs (
 
 CREATE INDEX idx_jobs_claim ON jobs(queue, status, run_at, seq);
 CREATE INDEX idx_jobs_lease ON jobs(queue, status, lease_until);
+
+-- What makes idempotent enqueue safe across processes: the database, not
+-- application code, guarantees one job per (queue, key). SQLite treats NULLs as
+-- distinct in a unique index, so jobs without a key never collide.
+CREATE UNIQUE INDEX idx_jobs_idempotency ON jobs(queue, idempotency_key);
 `;
 
 interface JobRow {
@@ -53,6 +60,7 @@ interface JobRow {
   error: string | null;
   created_at: number;
   run_at: number;
+  idempotency_key: string | null;
   lease_ms: number;
   lease_until: number | null;
   claimed_at: number | null;
@@ -71,6 +79,7 @@ function toJob(row: JobRow): Job {
     error: row.error,
     createdAt: row.created_at,
     runAt: row.run_at,
+    idempotencyKey: row.idempotency_key,
     leaseMs: row.lease_ms,
     leaseUntil: row.lease_until,
     claimedAt: row.claimed_at,
@@ -105,6 +114,7 @@ export class SqliteStorage implements Storage {
   private readonly defaultLeaseMs: number;
 
   private readonly insertJob: Database.Statement;
+  private readonly selectByKey: Database.Statement;
   private readonly expireExhausted: Database.Statement;
   private readonly claimNext: Database.Statement;
   private readonly extendLease: Database.Statement;
@@ -145,9 +155,16 @@ export class SqliteStorage implements Storage {
       throw err;
     }
 
+    // ON CONFLICT DO NOTHING turns "key already used" into changes = 0 instead of
+    // an error, atomically: when several processes insert the same key at once,
+    // the unique index lets exactly one succeed.
     this.insertJob = this.db.prepare(
-      `INSERT INTO jobs (id, queue, payload, status, max_attempts, created_at, run_at, lease_ms)
-       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)`,
+      `INSERT INTO jobs (id, queue, payload, status, max_attempts, created_at, run_at, lease_ms, idempotency_key)
+       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+       ON CONFLICT (queue, idempotency_key) DO NOTHING`,
+    );
+    this.selectByKey = this.db.prepare(
+      "SELECT * FROM jobs WHERE queue = ? AND idempotency_key = ?",
     );
     // A job whose lease lapsed and that has used every attempt is not run again.
     this.expireExhausted = this.db.prepare(
@@ -267,19 +284,31 @@ export class SqliteStorage implements Storage {
     payload,
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     leaseMs = this.defaultLeaseMs,
+    idempotencyKey,
   }: NewJob): Promise<Job> {
     if (queue.trim() === "") throw new RangeError("queue must be a non-empty string");
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
       throw new RangeError("maxAttempts must be a positive integer");
     }
     assertLeaseMs(leaseMs);
+    if (idempotencyKey !== undefined) assertIdempotencyKey(idempotencyKey);
     const json = JSON.stringify(payload);
     if (json === undefined) throw new TypeError("payload must be JSON-serializable");
 
     const id = randomUUID();
     const now = this.now();
-    this.insertJob.run(id, queue, json, maxAttempts, now, now, leaseMs);
-    return toJob(this.selectById.get(id) as JobRow);
+    const { changes } = this.insertJob.run(
+      id, queue, json, maxAttempts, now, now, leaseMs, idempotencyKey ?? null,
+    );
+    if (changes === 1) return toJob(this.selectById.get(id) as JobRow);
+
+    // Nothing inserted: another call already holds this (queue, key).
+    const existing = this.selectByKey.get(queue, idempotencyKey) as JobRow | undefined;
+    if (!existing) throw new Error("insert was ignored but no job holds the idempotency key");
+    if (canonicalize(JSON.parse(existing.payload)) !== canonicalize(JSON.parse(json))) {
+      throw new IdempotencyConflictError(queue, idempotencyKey as string);
+    }
+    return toJob(existing);
   }
 
   async claim(queue: string, workerId: string): Promise<Job | null> {
