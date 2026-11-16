@@ -11,9 +11,55 @@ import {
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
 import { resolveRunAt } from "./schedule.js";
 import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
-import type { Job, JobStatus, NewJob } from "./types.js";
+import type { Job, JobStatus, NewJob, QueueStats } from "./types.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
+
+// One pass over the jobs, counted with conditional aggregates, so every number
+// comes from the same snapshot. (Separate COUNT queries could see a job move
+// between states in between and count it twice or not at all.) In SQLite a
+// comparison is 0 or 1, so SUM(condition) counts the rows where it holds. The
+// lease boundary (lease_until <= now means lapsed) matches claimNext exactly.
+function statsSql(where: string): string {
+  return `
+    SELECT queue,
+      SUM(status = 'pending' AND run_at <= @now)      AS ready,
+      SUM(status = 'pending' AND run_at >  @now)      AS scheduled,
+      SUM(status = 'running' AND lease_until >  @now) AS running,
+      SUM(status = 'running' AND lease_until <= @now) AS stalled,
+      SUM(status = 'completed')                       AS completed,
+      SUM(status = 'dead')                            AS dead,
+      MIN(CASE WHEN status = 'pending' AND run_at <= @now THEN run_at END) AS oldest_ready_run_at
+    FROM jobs
+    ${where}
+    GROUP BY queue
+    ORDER BY queue`;
+}
+
+interface StatsRow {
+  queue: string;
+  ready: number;
+  scheduled: number;
+  running: number;
+  stalled: number;
+  completed: number;
+  dead: number;
+  oldest_ready_run_at: number | null;
+}
+
+function toQueueStats(row: StatsRow, now: number): QueueStats {
+  return {
+    queue: row.queue,
+    ready: row.ready,
+    scheduled: row.scheduled,
+    running: row.running,
+    stalled: row.stalled,
+    completed: row.completed,
+    dead: row.dead,
+    oldestReadyAgeMs: row.oldest_ready_run_at === null ? null : now - row.oldest_ready_run_at,
+    at: now,
+  };
+}
 
 // Bump when SCHEMA_SQL changes. There are no migrations yet: a database file
 // with a different version is rejected with a clear error instead of failing
@@ -125,6 +171,8 @@ export class SqliteStorage implements Storage {
   private readonly selectDead: Database.Statement;
   private readonly markRequeued: Database.Statement;
   private readonly selectById: Database.Statement;
+  private readonly selectAllStats: Database.Statement;
+  private readonly selectQueueStats: Database.Statement;
   private readonly claimTx: Database.Transaction<(workerId: string, queue: string) => JobRow | undefined>;
   private readonly failTx: Database.Transaction<(id: string, workerId: string, error: string) => JobRow>;
 
@@ -225,6 +273,10 @@ export class SqliteStorage implements Storage {
         WHERE id = ? AND status = 'dead'`,
     );
     this.selectById = this.db.prepare("SELECT * FROM jobs WHERE id = ?");
+    // Two statements rather than "WHERE @queue IS NULL OR queue = @queue": the
+    // plain equality lets SQLite seek straight to one queue in idx_jobs_claim.
+    this.selectAllStats = this.db.prepare(statsSql(""));
+    this.selectQueueStats = this.db.prepare(statsSql("WHERE queue = @queue"));
 
     // Two statements that must not interleave with another process, so they run
     // as one transaction. Both transactions are called with .immediate(), which
@@ -346,6 +398,14 @@ export class SqliteStorage implements Storage {
   async get(id: string): Promise<Job | null> {
     const row = this.selectById.get(id) as JobRow | undefined;
     return row ? toJob(row) : null;
+  }
+
+  async stats(queue?: string): Promise<QueueStats[]> {
+    const now = this.now();
+    const rows = (
+      queue === undefined ? this.selectAllStats.all({ now }) : this.selectQueueStats.all({ now, queue })
+    ) as StatsRow[];
+    return rows.map((row) => toQueueStats(row, now));
   }
 
   async close(): Promise<void> {

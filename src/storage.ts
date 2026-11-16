@@ -1,4 +1,4 @@
-import type { Job, NewJob } from "./types.js";
+import type { Job, NewJob, QueueStats } from "./types.js";
 
 /** Lease length for jobs that set none and stores that configure none. */
 export const DEFAULT_LEASE_MS = 30_000;
@@ -83,6 +83,14 @@ export interface Storage {
   requeueDead(id: string): Promise<Job>;
 
   get(id: string): Promise<Job | null>;
+
+  /**
+   * A consistent snapshot of job counts for `queue`, or for every queue that
+   * has jobs when `queue` is omitted, sorted by queue name. A queue with no jobs
+   * at all is not listed. Uses the same clock and the same lease boundary as
+   * `claim`, so a job counted as `stalled` is exactly one `claim` would take over.
+   */
+  stats(queue?: string): Promise<QueueStats[]>;
 
   close(): Promise<void>;
 }

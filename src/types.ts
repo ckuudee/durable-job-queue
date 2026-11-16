@@ -38,6 +38,36 @@ export interface Job {
   finishedAt: number | null;
 }
 
+/**
+ * A point-in-time count of one queue's jobs, split the way an operator reads
+ * them. Every count comes from a single query, so they are consistent with
+ * each other.
+ */
+export interface QueueStats {
+  queue: string;
+  /** Pending and due: waiting only for a free worker. */
+  ready: number;
+  /** Pending but not yet due: delayed jobs, and retries waiting out their backoff. */
+  scheduled: number;
+  /** Running with a live lease. */
+  running: number;
+  /**
+   * Running, but the lease has lapsed: the worker has probably died, and the
+   * next claim() on this queue will take the job over (or mark it dead).
+   */
+  stalled: number;
+  completed: number;
+  dead: number;
+  /**
+   * How long the oldest ready job has been ready (now minus its `runAt`), or
+   * null when no job is ready. Measured from `runAt` rather than `createdAt`, so
+   * a delayed job or a retry doesn't look late just because it was scheduled.
+   */
+  oldestReadyAgeMs: number | null;
+  /** The store's clock reading the snapshot was taken at (epoch ms). */
+  at: number;
+}
+
 export interface NewJob {
   queue: string;
   payload: unknown;
