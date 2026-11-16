@@ -18,3 +18,15 @@ it("runs the quickstart example end to end", async () => {
   expect(stdout).toContain("attempt 2 of 2 for nobody@invalid failed");
   expect(stdout).toContain("dead-letter queue holds 1 job(s): mailbox nobody@invalid does not exist");
 }, 30_000);
+
+it("runs the dashboard demo and shuts it down cleanly", async () => {
+  const script = join(import.meta.dirname, "..", "examples", "dashboard.ts");
+  const { stdout, stderr } = await run(process.execPath, ["--import", "tsx", script], {
+    env: { ...process.env, PORT: "0", DEMO_DURATION_MS: "1500" },
+  });
+
+  expect(stdout).toMatch(/Dashboard running at http:\/\/127\.0\.0\.1:\d+\//);
+  expect(stdout).toContain("crashed-worker took export job");
+  expect(stdout).toContain("stopped");
+  expect(stderr).toBe(""); // no worker errors from shutting down mid-job
+}, 30_000);
