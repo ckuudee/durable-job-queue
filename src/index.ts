@@ -22,6 +22,7 @@ export {
   type WorkerEvents,
   type WorkerOptions,
 } from "./worker.js";
+export { startDashboard, type Dashboard, type DashboardOptions } from "./dashboard.js";
 export {
   DEFAULT_RETRY_POLICY,
   computeBackoff,

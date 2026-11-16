@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "example": "tsx examples/quickstart.ts"
+    "example": "tsx examples/quickstart.ts",
+    "dashboard": "tsx examples/dashboard.ts"
   },
   "keywords": [
     "job-queue",
