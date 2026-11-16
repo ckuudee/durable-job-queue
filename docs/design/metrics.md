@@ -103,14 +103,14 @@ Add the cases to `test/storage-contract.ts` so SQLite and PostgreSQL both have t
 
 ```ts
 interface WorkerEvents {
-  /** Fired after claim(). `recovered` is true when the previous holder's lease lapsed. */
   "job:claimed":   [{ job: Job }];
   "job:completed": [{ job: Job; durationMs: number }];
   /** The handler threw. `willRetry` comes from the job fail() returned: pending means retry, dead means DLQ. */
   "job:failed":    [{ job: Job; error: unknown; durationMs: number; willRetry: boolean }];
-  /** The worker lost the job (lease lapsed and it was re-claimed) or stop() timed out. No result was recorded. */
+  /** The worker lost the job (lease lapsed and it was re-claimed), stop() timed out, or storage rejected the result. No result was recorded. */
   "job:abandoned": [{ job: Job; reason: unknown }];
 }
+// Every job:claimed is followed by exactly one of the other three.
 
 worker.on("job:completed", ({ job, durationMs }) => histogram.observe({ queue: job.queue }, durationMs));
 ```
@@ -163,4 +163,5 @@ A small, read-only web page, with no frontend framework and no new dependencies.
 
 1. **Retention of completed jobs comes after this work.** Metrics ship first. When `pruneCompleted(olderThanMs)` is added, the `completed` count and the dashboard's throughput calculation must change with it, because pruning makes `Δcompleted` go negative. The likely fix is a `completedSince` count backed by an index on `finished_at`.
 2. **`stats()` returns an array of per-queue rows.** Rows map one-to-one onto the `GROUP BY` result and the dashboard's table, and an array keeps a stable order.
-3. **The lost-job event is named `job:abandoned`.** It covers both a lapsed lease and a `stop()` timeout, so the name describes what the worker did (gave up the job) rather than one cause.
+3. **The lost-job event is named `job:abandoned`.** It covers a lapsed lease, a `stop()` timeout and a result storage rejected, so the name describes what the worker did (gave up the job) rather than one cause.
+4. **No `recovered` flag on `job:claimed`** (dropped during implementation). The only way to tell from a `Job` that the previous holder's lease lapsed is to match its `error` text against "lease expired". That text survives `requeueDead()`, and a handler can throw an error that says the same thing, so the flag would sometimes be wrong. Adding it properly means a dedicated column; until a metric needs it, `stalled` in `stats()` covers the operator's question.
