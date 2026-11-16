@@ -573,5 +573,124 @@ export function storageContract(
           await expect(s.requeueDead("no-such-id")).rejects.toThrow(JobStateError);
         }));
     });
+
+    describe("stats", () => {
+      const EMPTY = { ready: 0, scheduled: 0, running: 0, stalled: 0, completed: 0, dead: 0, oldestReadyAgeMs: null };
+
+      it("returns nothing for a store with no jobs", () =>
+        withStore(async (s) => {
+          expect(await s.stats()).toEqual([]);
+          expect(await s.stats("q")).toEqual([]);
+        }));
+
+      it("counts one job in each state", () =>
+        withStore(async (s, clock) => {
+          // Claimed jobs are set up first, because claim takes the oldest ready job.
+          const done = await s.enqueue({ queue: "q", payload: "completed" });
+          await s.claim("q", "w1");
+          await s.complete(done.id, "w1");
+
+          const dead = await s.enqueue({ queue: "q", payload: "dead", maxAttempts: 1 });
+          await s.claim("q", "w1");
+          await s.fail(dead.id, "w1", "boom");
+
+          await s.enqueue({ queue: "q", payload: "stalled", leaseMs: 1_000 });
+          await s.claim("q", "w1");
+          await s.enqueue({ queue: "q", payload: "running" }); // default lease, 10 s
+          await s.claim("q", "w2");
+
+          await s.enqueue({ queue: "q", payload: "ready" });
+          await s.enqueue({ queue: "q", payload: "scheduled", delayMs: 5_000 });
+
+          // Exactly at the short lease's end: claim() treats that as lapsed, so stats must too.
+          clock.t = START + 1_000;
+          expect(await s.stats("q")).toEqual([
+            {
+              queue: "q",
+              ready: 1,
+              scheduled: 1,
+              running: 1,
+              stalled: 1,
+              completed: 1,
+              dead: 1,
+              oldestReadyAgeMs: 1_000,
+              at: START + 1_000,
+            },
+          ]);
+        }));
+
+      it("moves jobs between buckets as the clock passes runAt and leaseUntil", () =>
+        withStore(async (s, clock) => {
+          await s.enqueue({ queue: "q", payload: "running" });
+          await s.claim("q", "w1"); // lease ends at START + LEASE
+          await s.enqueue({ queue: "q", payload: "delayed", delayMs: 5_000 });
+
+          expect(await s.stats("q")).toMatchObject([{ ready: 0, scheduled: 1, running: 1, stalled: 0 }]);
+
+          clock.t = START + 4_999;
+          expect(await s.stats("q")).toMatchObject([{ ready: 0, scheduled: 1 }]);
+
+          clock.t = START + 5_000;
+          expect(await s.stats("q")).toMatchObject([{ ready: 1, scheduled: 0, oldestReadyAgeMs: 0 }]);
+
+          clock.t = START + LEASE - 1;
+          expect(await s.stats("q")).toMatchObject([{ running: 1, stalled: 0 }]);
+
+          clock.t = START + LEASE;
+          expect(await s.stats("q")).toMatchObject([
+            { running: 0, stalled: 1, oldestReadyAgeMs: LEASE - 5_000 },
+          ]);
+        }));
+
+      it("agrees with claim about which jobs are stalled", () =>
+        withStore(async (s, clock) => {
+          await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+          clock.t = START + LEASE;
+
+          expect(await s.stats("q")).toMatchObject([{ stalled: 1 }]);
+          expect(await s.claim("q", "w2")).not.toBeNull(); // the stalled job is taken over...
+          expect(await s.stats("q")).toMatchObject([{ running: 1, stalled: 0 }]); // ...and runs again
+        }));
+
+      it("measures oldestReadyAgeMs from the oldest ready job's runAt, ignoring scheduled jobs", () =>
+        withStore(async (s, clock) => {
+          await s.enqueue({ queue: "q", payload: "far future", delayMs: 60_000 });
+          expect(await s.stats("q")).toEqual([{ ...EMPTY, queue: "q", scheduled: 1, at: START }]);
+
+          await s.enqueue({ queue: "q", payload: "oldest" });
+          clock.t += 3_000;
+          await s.enqueue({ queue: "q", payload: "newer" });
+          clock.t += 1_000;
+          expect(await s.stats("q")).toMatchObject([{ ready: 2, scheduled: 1, oldestReadyAgeMs: 4_000 }]);
+        }));
+
+      it("counts a retry as scheduled during its backoff, and its wait from when it became ready", () =>
+        withStore(async (s, clock) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          await s.claim("q", "w1");
+          await s.fail(id, "w1", "x"); // retry in 1000 ms
+          expect(await s.stats("q")).toMatchObject([{ ready: 0, scheduled: 1, running: 0 }]);
+
+          clock.t += 1_500;
+          expect(await s.stats("q")).toMatchObject([{ ready: 1, scheduled: 0, oldestReadyAgeMs: 500 }]);
+        }));
+
+      it("lists every queue sorted by name, or just the one asked for", () =>
+        withStore(async (s) => {
+          await s.enqueue({ queue: "billing", payload: 1 });
+          await s.enqueue({ queue: "Zeta", payload: 1 }); // uppercase sorts first by byte value
+          await s.enqueue({ queue: "email", payload: 1 });
+          await s.enqueue({ queue: "email", payload: 2 });
+
+          expect((await s.stats()).map((q) => [q.queue, q.ready])).toEqual([
+            ["Zeta", 1],
+            ["billing", 1],
+            ["email", 2],
+          ]);
+          expect(await s.stats("email")).toEqual([{ ...EMPTY, queue: "email", ready: 2, oldestReadyAgeMs: 0, at: START }]);
+          expect(await s.stats("missing")).toEqual([]);
+        }));
+    });
   });
 }

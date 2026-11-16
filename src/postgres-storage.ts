@@ -9,7 +9,7 @@ import {
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
 import { resolveRunAt } from "./schedule.js";
 import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
-import type { Job, JobStatus, NewJob } from "./types.js";
+import type { Job, JobStatus, NewJob, QueueStats } from "./types.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 
@@ -99,6 +99,33 @@ function toJob(row: PgRow): Job {
     leaseUntil: toNumberOrNull(row.lease_until),
     claimedAt: toNumberOrNull(row.claimed_at),
     finishedAt: toNumberOrNull(row.finished_at),
+  };
+}
+
+/** COUNT(*) and MIN(bigint) are BIGINT too, so they arrive as strings. */
+interface PgStatsRow {
+  queue: string;
+  ready: string;
+  scheduled: string;
+  running: string;
+  stalled: string;
+  completed: string;
+  dead: string;
+  oldest_ready_run_at: string | null;
+}
+
+function toQueueStats(row: PgStatsRow, now: number): QueueStats {
+  const oldest = toNumberOrNull(row.oldest_ready_run_at);
+  return {
+    queue: row.queue,
+    ready: Number(row.ready),
+    scheduled: Number(row.scheduled),
+    running: Number(row.running),
+    stalled: Number(row.stalled),
+    completed: Number(row.completed),
+    dead: Number(row.dead),
+    oldestReadyAgeMs: oldest === null ? null : now - oldest,
+    at: now,
   };
 }
 
@@ -425,6 +452,30 @@ export class PostgresStorage implements Storage {
     const { rows } = await this.pool.query<PgRow>(`SELECT * FROM ${this.jobs} WHERE id = $1`, [id]);
     const row = rows[0];
     return row ? toJob(row) : null;
+  }
+
+  async stats(queue?: string): Promise<QueueStats[]> {
+    const now = this.now();
+    // One statement sees one MVCC snapshot, so the counts are consistent with
+    // each other. The lease boundary (lease_until <= now means lapsed) matches
+    // claim() exactly. COLLATE "C" sorts queue names by byte value, the same
+    // order SQLite uses, so both backends list queues identically.
+    const { rows } = await this.pool.query<PgStatsRow>(
+      `SELECT queue,
+         COUNT(*) FILTER (WHERE status = 'pending' AND run_at <= $1::bigint)      AS ready,
+         COUNT(*) FILTER (WHERE status = 'pending' AND run_at >  $1::bigint)      AS scheduled,
+         COUNT(*) FILTER (WHERE status = 'running' AND lease_until >  $1::bigint) AS running,
+         COUNT(*) FILTER (WHERE status = 'running' AND lease_until <= $1::bigint) AS stalled,
+         COUNT(*) FILTER (WHERE status = 'completed')                             AS completed,
+         COUNT(*) FILTER (WHERE status = 'dead')                                  AS dead,
+         MIN(run_at) FILTER (WHERE status = 'pending' AND run_at <= $1::bigint)   AS oldest_ready_run_at
+       FROM ${this.jobs}
+       ${queue === undefined ? "" : "WHERE queue = $2"}
+       GROUP BY queue
+       ORDER BY queue COLLATE "C"`,
+      queue === undefined ? [now] : [now, queue],
+    );
+    return rows.map((row) => toQueueStats(row, now));
   }
 
   async close(): Promise<void> {
