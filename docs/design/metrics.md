@@ -70,8 +70,8 @@ One statement per backend, so the counts are a consistent snapshot. In SQLite a 
 SELECT queue,
   SUM(status = 'pending' AND run_at <= :now)       AS ready,
   SUM(status = 'pending' AND run_at >  :now)       AS scheduled,
-  SUM(status = 'running' AND lease_until >= :now)  AS running,
-  SUM(status = 'running' AND lease_until <  :now)  AS stalled,
+  SUM(status = 'running' AND lease_until >  :now)  AS running,
+  SUM(status = 'running' AND lease_until <= :now)  AS stalled,  -- same boundary as claim()
   SUM(status = 'completed')                        AS completed,
   SUM(status = 'dead')                             AS dead,
   MIN(CASE WHEN status = 'pending' AND run_at <= :now THEN run_at END) AS oldest_ready_run_at
