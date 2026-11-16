@@ -10,7 +10,18 @@ export {
   type RecurringJob,
   type SchedulerOptions,
 } from "./scheduler.js";
-export { Worker, type JobContext, type JobHandler, type StopOptions, type WorkerOptions } from "./worker.js";
+export {
+  Worker,
+  type JobAbandonedEvent,
+  type JobClaimedEvent,
+  type JobCompletedEvent,
+  type JobContext,
+  type JobFailedEvent,
+  type JobHandler,
+  type StopOptions,
+  type WorkerEvents,
+  type WorkerOptions,
+} from "./worker.js";
 export {
   DEFAULT_RETRY_POLICY,
   computeBackoff,

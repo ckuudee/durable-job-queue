@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { JobStateError, SqliteStorage, Worker, type Job, type Storage, type WorkerOptions } from "../src/index.js";
+import {
+  JobStateError,
+  SqliteStorage,
+  Worker,
+  type Job,
+  type Storage,
+  type WorkerEvents,
+  type WorkerOptions,
+} from "../src/index.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -251,5 +259,190 @@ describe("Worker", () => {
     expect(() => new Worker(storage, { queue: "q", handler, concurrency: 0 })).toThrow(RangeError);
     expect(() => new Worker(storage, { queue: "q", handler, pollIntervalMs: 1.5 })).toThrow(RangeError);
     expect(() => new Worker(storage, { queue: "q", handler, workerId: "" })).toThrow(RangeError);
+  });
+});
+
+type Recorded = { [K in keyof WorkerEvents]: [K, WorkerEvents[K][0]] }[keyof WorkerEvents];
+
+/** Every lifecycle event the worker emits, in order. */
+function record(w: Worker): Recorded[] {
+  const events: Recorded[] = [];
+  w.on("job:claimed", (e) => events.push(["job:claimed", e]));
+  w.on("job:completed", (e) => events.push(["job:completed", e]));
+  w.on("job:failed", (e) => events.push(["job:failed", e]));
+  w.on("job:abandoned", (e) => events.push(["job:abandoned", e]));
+  return events;
+}
+
+const names = (events: Recorded[]) => events.map(([name]) => name);
+
+describe("Worker events", () => {
+  it("emits claimed then completed, with the handler's duration", async () => {
+    const { storage, worker, errors } = setup();
+    const job = await storage.enqueue({ queue: "q", payload: 1 });
+    const w = worker({
+      handler: async () => {
+        await sleep(20);
+      },
+    });
+    const events = record(w);
+
+    w.start();
+    await waitFor(() => events.length === 2);
+    await w.stop();
+
+    expect(names(events)).toEqual(["job:claimed", "job:completed"]);
+    const [, completed] = events[1] as ["job:completed", WorkerEvents["job:completed"][0]];
+    expect(completed.job).toMatchObject({ id: job.id, status: "running" }); // the job as claimed
+    expect(completed.durationMs).toBeGreaterThanOrEqual(15); // timers can fire a little early
+    // Emitted only after the completion is stored, so a listener reading storage sees it.
+    expect(await storage.get(job.id)).toMatchObject({ status: "completed" });
+    expect(errors).toEqual([]);
+  });
+
+  it("emits failed with willRetry until the last attempt, which goes to the dead-letter queue", async () => {
+    const { storage, worker } = setup();
+    await storage.enqueue({ queue: "q", payload: 1, maxAttempts: 3 });
+    const boom = new Error("boom");
+    const w = worker({
+      handler: async () => {
+        throw boom;
+      },
+    });
+    const events = record(w);
+
+    w.start();
+    await waitFor(() => events.length === 6);
+    await w.stop();
+
+    expect(names(events)).toEqual([
+      "job:claimed", "job:failed", "job:claimed", "job:failed", "job:claimed", "job:failed",
+    ]);
+    const failures = events.filter((e): e is ["job:failed", WorkerEvents["job:failed"][0]] => e[0] === "job:failed");
+    expect(failures.map(([, e]) => e.willRetry)).toEqual([true, true, false]);
+    expect(failures.every(([, e]) => e.error === boom)).toBe(true); // the thrown value itself, not just its message
+  });
+
+  it("emits abandoned, and never completed, when the job is lost to another worker", async () => {
+    const { storage, errors } = setup({ leaseMs: 30 });
+    const lossy: Storage = Object.assign(Object.create(storage) as Storage, {
+      heartbeat: async (id: string) => {
+        throw new JobStateError(`job ${id} is not running under this worker`);
+      },
+    });
+    await storage.enqueue({ queue: "q", payload: 1 });
+    const w = new Worker(lossy, {
+      queue: "q",
+      pollIntervalMs: 5,
+      onError: (e) => errors.push(e),
+      handler: (_job, { signal }) => new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve())),
+    });
+    cleanup.push(() => w.stop({ timeoutMs: 0 }));
+    const events = record(w);
+
+    w.start();
+    await waitFor(() => events.length === 2);
+    await w.stop();
+
+    expect(names(events)).toEqual(["job:claimed", "job:abandoned"]);
+    expect(events[1]?.[1]).toMatchObject({ reason: expect.any(JobStateError) });
+  });
+
+  it("emits abandoned as soon as stop() times out, even if the handler never returns", async () => {
+    const { storage, worker } = setup();
+    await storage.enqueue({ queue: "q", payload: 1 });
+    const w = worker({ handler: () => new Promise<void>(() => {}) }); // hangs forever
+    const events = record(w);
+
+    w.start();
+    await waitFor(() => events.length === 1);
+    await w.stop({ timeoutMs: 20 });
+
+    expect(names(events)).toEqual(["job:claimed", "job:abandoned"]);
+    expect(events[1]?.[1]).toMatchObject({ reason: expect.objectContaining({ message: expect.stringMatching(/stopped/) }) });
+  });
+
+  it("emits abandoned when storage refuses to record the result", async () => {
+    const { storage, errors } = setup();
+    const down = new Error("connection reset");
+    const broken: Storage = Object.assign(Object.create(storage) as Storage, {
+      complete: async () => {
+        throw down;
+      },
+    });
+    await storage.enqueue({ queue: "q", payload: 1 });
+    const w = new Worker(broken, { queue: "q", pollIntervalMs: 5, onError: (e) => errors.push(e), handler: async () => {} });
+    cleanup.push(() => w.stop({ timeoutMs: 0 }));
+    const events = record(w);
+
+    w.start();
+    await waitFor(() => events.length === 2);
+    await w.stop({ timeoutMs: 0 });
+
+    expect(names(events)).toEqual(["job:claimed", "job:abandoned"]);
+    expect(events[1]?.[1]).toMatchObject({ reason: down });
+    expect(errors).toContain(down); // still reported as a worker error, as before
+  });
+
+  it("emits exactly one outcome when stop() times out while the result is being recorded", async () => {
+    const { storage } = setup();
+    const recording = gate();
+    const slow: Storage = Object.assign(Object.create(storage) as Storage, {
+      complete: async (id: string, workerId: string) => {
+        await recording.opened; // hold complete() in flight
+        return storage.complete(id, workerId);
+      },
+    });
+    const job = await storage.enqueue({ queue: "q", payload: 1 });
+    const w = new Worker(slow, { queue: "q", pollIntervalMs: 5, onError: () => {}, handler: async () => {} });
+    cleanup.push(() => w.stop({ timeoutMs: 0 }));
+    const events = record(w);
+
+    w.start();
+    await waitFor(() => events.length === 1);
+    await sleep(10); // the handler is done; complete() is now waiting on the gate
+    await w.stop({ timeoutMs: 10 }); // times out and aborts the in-flight job...
+    recording.release(); // ...but the completion still lands
+    await waitFor(async () => (await storage.get(job.id))?.status === "completed");
+    await sleep(10);
+
+    expect(names(events)).toEqual(["job:claimed", "job:completed"]);
+  });
+
+  it("isolates a throwing listener: later listeners still run and the job still completes", async () => {
+    const { storage, worker, errors } = setup();
+    const job = await storage.enqueue({ queue: "q", payload: 1 });
+    const w = worker({ handler: async () => {} });
+    const bug = new Error("listener bug");
+    w.on("job:claimed", () => {
+      throw bug;
+    });
+    w.on("job:completed", () => {
+      throw bug;
+    });
+    const events = record(w); // registered after the throwing listeners
+
+    w.start();
+    await waitFor(() => events.length === 2);
+    await w.stop();
+
+    expect(names(events)).toEqual(["job:claimed", "job:completed"]);
+    expect(await storage.get(job.id)).toMatchObject({ status: "completed" });
+    expect(errors).toEqual([bug, bug]);
+  });
+
+  it("reports an async listener's rejection to onError instead of crashing the process", async () => {
+    const { storage, worker, errors } = setup();
+    await storage.enqueue({ queue: "q", payload: 1 });
+    const w = worker({ handler: async () => {} });
+    const bug = new Error("async listener bug");
+    w.on("job:completed", async () => {
+      throw bug;
+    });
+
+    w.start();
+    await waitFor(() => errors.length === 1); // vitest fails the run on any unhandled rejection
+    await w.stop();
+    expect(errors).toEqual([bug]);
   });
 });

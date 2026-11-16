@@ -1,7 +1,54 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { hostname } from "node:os";
 import { JobStateError, type Storage } from "./storage.js";
 import type { Job } from "./types.js";
+
+/**
+ * Lifecycle events a Worker emits, for metrics and logging. Every `job:claimed`
+ * is followed by exactly one of `job:completed`, `job:failed` or
+ * `job:abandoned`. In each event, `job` is the job as it was claimed.
+ *
+ * Events describe only what this Worker did. A job whose lease lapses on its
+ * final attempt is marked dead inside some later `claim()`, so no Worker emits
+ * an event for it; `Storage.stats()` counts it.
+ *
+ * There is deliberately no "error" event: EventEmitter throws when "error" is
+ * emitted with no listener. Errors the worker survives go to `onError`.
+ */
+export interface WorkerEvents {
+  "job:claimed": [JobClaimedEvent];
+  /** Emitted after the completion is recorded in storage. */
+  "job:completed": [JobCompletedEvent];
+  /** The handler threw, and the failure is recorded. `willRetry` is false when the job went to the dead-letter queue. */
+  "job:failed": [JobFailedEvent];
+  /**
+   * The worker gave the job up without recording a result: its lease was lost
+   * to another worker, stop() timed out, or storage rejected the result. The
+   * job's lease lapses and it runs again elsewhere (or goes dead if out of attempts).
+   */
+  "job:abandoned": [JobAbandonedEvent];
+}
+
+export interface JobClaimedEvent {
+  job: Job;
+}
+export interface JobCompletedEvent {
+  job: Job;
+  /** How long the handler ran, in milliseconds. */
+  durationMs: number;
+}
+export interface JobFailedEvent {
+  job: Job;
+  /** What the handler threw. */
+  error: unknown;
+  durationMs: number;
+  willRetry: boolean;
+}
+export interface JobAbandonedEvent {
+  job: Job;
+  reason: unknown;
+}
 
 export interface JobContext {
   /**
@@ -28,8 +75,9 @@ export interface WorkerOptions {
   pollIntervalMs?: number;
   /**
    * Called with errors the worker survives: a failed claim (database down), a
-   * failed heartbeat, or a lost job (JobStateError). Handler errors are not
-   * reported here; they fail the job. Defaults to console.error.
+   * failed heartbeat, a lost job (JobStateError), or an event listener that
+   * threw. Handler errors are not reported here; they fail the job. Defaults
+   * to console.error.
    */
   onError?: (err: unknown) => void;
 }
@@ -55,9 +103,10 @@ function assertPositiveInteger(name: string, value: number): void {
  * const worker = new Worker(storage, { queue: "email", handler: async (job) => send(job.payload) });
  * worker.start();
  * process.on("SIGTERM", () => worker.stop({ timeoutMs: 30_000 }));
+ * worker.on("job:completed", ({ job, durationMs }) => metrics.observe(job.queue, durationMs));
  * ```
  */
-export class Worker {
+export class Worker extends EventEmitter<WorkerEvents> {
   readonly workerId: string;
   private readonly storage: Storage;
   private readonly queue: string;
@@ -82,6 +131,7 @@ export class Worker {
       pollIntervalMs = 1_000,
       onError = (err) => console.error(err),
     } = options;
+    super();
     if (queue.trim() === "") throw new RangeError("queue must be a non-empty string");
     if (workerId.trim() === "") throw new RangeError("workerId must be a non-empty string");
     assertPositiveInteger("concurrency", concurrency);
@@ -148,14 +198,25 @@ export class Worker {
         continue;
       }
       // A job claimed just as stop() was called is still ours: run it.
-      if (job) await this.run(job);
-      else await this.sleep(this.pollIntervalMs);
+      if (job) {
+        this.emitSafely("job:claimed", { job });
+        await this.run(job);
+      } else {
+        await this.sleep(this.pollIntervalMs);
+      }
     }
   }
 
   private async run(job: Job): Promise<void> {
     const controller = new AbortController();
     this.inFlight.add(controller);
+
+    // The job is given up the moment it's aborted (lost lease, or stop() timing
+    // out), even if the handler never returns. Removed below before the result
+    // is recorded, so a late abort can't announce a job that then completes.
+    const onAbort = (): void => this.emitSafely("job:abandoned", { job, reason: controller.signal.reason });
+    controller.signal.addEventListener("abort", onAbort, { once: true });
+    const startedAt = performance.now();
 
     const heartbeat = setInterval(() => {
       this.storage.heartbeat(job.id, this.workerId).catch((err: unknown) => {
@@ -175,23 +236,52 @@ export class Worker {
       } catch (error) {
         failure = { error };
       }
-      // The job was lost, or stop() gave up on it: it's no longer ours to record.
+      // The job was lost, or stop() gave up on it: it's no longer ours to record
+      // (and onAbort has already reported it abandoned).
       if (controller.signal.aborted) return;
+      controller.signal.removeEventListener("abort", onAbort);
       clearInterval(heartbeat);
+      const durationMs = performance.now() - startedAt;
 
-      if (failure) {
-        const { error } = failure;
-        await this.storage.fail(job.id, this.workerId, error instanceof Error ? error.message : String(error));
-      } else {
-        await this.storage.complete(job.id, this.workerId);
+      try {
+        if (failure) {
+          const { error } = failure;
+          const failed = await this.storage.fail(
+            job.id, this.workerId, error instanceof Error ? error.message : String(error),
+          );
+          this.emitSafely("job:failed", { job, error, durationMs, willRetry: failed.status === "pending" });
+        } else {
+          await this.storage.complete(job.id, this.workerId);
+          this.emitSafely("job:completed", { job, durationMs });
+        }
+      } catch (err) {
+        // complete() or fail() threw: the job was lost (JobStateError) or the
+        // database is unreachable. Either way the lease lapses and it runs again.
+        this.onError(err);
+        this.emitSafely("job:abandoned", { job, reason: err });
       }
-    } catch (err) {
-      // complete() or fail() threw: the job was lost (JobStateError) or the
-      // database is unreachable. Either way the lease lapses and it runs again.
-      this.onError(err);
     } finally {
       clearInterval(heartbeat);
       this.inFlight.delete(controller);
+    }
+  }
+
+  /**
+   * emit(), but a listener can't hurt the worker. Plain emit() runs listeners
+   * synchronously, so a throwing listener would throw into run() and could
+   * leave a finished job unrecorded; it would also skip the listeners after it.
+   * And an async listener's rejected promise would be an unhandled rejection,
+   * which crashes Node by default. Each listener's error goes to onError instead.
+   */
+  private emitSafely<K extends keyof WorkerEvents>(event: K, ...args: WorkerEvents[K]): void {
+    // listeners() returns a copy, so a listener that removes itself (once()) is safe.
+    for (const listener of this.listeners(event) as Array<(...a: WorkerEvents[K]) => unknown>) {
+      try {
+        const result = listener.apply(this, args);
+        if (result instanceof Promise) result.catch((err: unknown) => this.onError(err));
+      } catch (err) {
+        this.onError(err);
+      }
     }
   }
 
