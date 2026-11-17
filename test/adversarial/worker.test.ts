@@ -64,7 +64,7 @@ describe.each(BACKENDS)("$name: Worker", (backend) => {
     return w;
   }
 
-  knownBug(16, backend.name)("W7: after stop({timeoutMs}) gives up on a handler that ignores its signal, the job's lease lapses and another worker can run it", async () => {
+  it("W7: after stop({timeoutMs}) gives up on a handler that ignores its signal, the job's lease lapses and another worker can run it", async () => {
     opened = await backend.open();
     const s = opened.storage;
     const { id } = await s.enqueue({ queue: "q", payload: 1, leaseMs: 150 });
@@ -82,7 +82,7 @@ describe.each(BACKENDS)("$name: Worker", (backend) => {
       const reclaimed = await s.claim("q", "other");
       expect(reclaimed?.id).toBe(id);
     } finally {
-      unstick(); // let run() finish so its heartbeat interval is cleared before cleanup
+      unstick(); // let run() finish before cleanup closes the store
       await sleep(10);
     }
   });
