@@ -211,23 +211,27 @@ export class Worker extends EventEmitter<WorkerEvents> {
     const controller = new AbortController();
     this.inFlight.add(controller);
 
-    // The job is given up the moment it's aborted (lost lease, or stop() timing
-    // out), even if the handler never returns. Removed below before the result
-    // is recorded, so a late abort can't announce a job that then completes.
-    const onAbort = (): void => this.emitSafely("job:abandoned", { job, reason: controller.signal.reason });
-    controller.signal.addEventListener("abort", onAbort, { once: true });
-    const startedAt = performance.now();
-
     const heartbeat = setInterval(() => {
       this.storage.heartbeat(job.id, this.workerId).catch((err: unknown) => {
-        if (err instanceof JobStateError) {
-          clearInterval(heartbeat);
-          controller.abort(err);
-        }
+        // A lost job stops the heartbeat via onAbort.
+        if (err instanceof JobStateError) controller.abort(err);
         // Anything else (say, a network blip) is reported and retried on the next beat.
         this.onError(err);
       });
     }, Math.max(1, Math.floor(job.leaseMs / 3)));
+
+    // The job is given up the moment it's aborted (lost lease, or stop() timing
+    // out), even if the handler never returns. Stop heartbeating here, not when
+    // the handler settles: a handler that ignores its signal would otherwise keep
+    // the lease alive forever and no other worker could recover the job (#16).
+    // Removed below before the result is recorded, so a late abort can't
+    // announce a job that then completes.
+    const onAbort = (): void => {
+      clearInterval(heartbeat);
+      this.emitSafely("job:abandoned", { job, reason: controller.signal.reason });
+    };
+    controller.signal.addEventListener("abort", onAbort, { once: true });
+    const startedAt = performance.now();
 
     try {
       let failure: { error: unknown } | undefined;
