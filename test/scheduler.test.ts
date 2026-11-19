@@ -112,6 +112,48 @@ describe("Scheduler", () => {
     await storage.close();
   });
 
+  // #19. Ticks every 10 minutes through the night clocks fall back, so some tick
+  // lands inside the repeated hour, and collects every occurrence enqueued.
+  describe("the day clocks fall back", () => {
+    const HOUR = 60 * MIN;
+    async function runAtsAcross(cron: string, timezone: string, from: number, hours: number): Promise<string[]> {
+      const { clock, storage, scheduler } = setup(from);
+      const s = scheduler({ lookaheadMs: 2 * HOUR }).add({ name: "dst", cron, timezone, queue: "q", payload: 1 });
+      const runAts = new Set<number>();
+      for (; clock.t < from + hours * HOUR; clock.t += 10 * MIN) {
+        for (const job of await s.tick()) runAts.add(job.runAt);
+      }
+      await storage.close();
+      return [...runAts].sort((a, b) => a - b).map((t) => new Date(t).toISOString());
+    }
+    // New York, 2026-11-01: 02:00 EDT (06:00Z) becomes 01:00 EST, so 01:00-01:59 happens twice.
+    const NOV_1_NY = Date.UTC(2026, 10, 1);
+
+    it("runs a fixed-time job once, at the first of the two repeated local times", async () => {
+      expect(await runAtsAcross("30 1 * * *", "America/New_York", NOV_1_NY, 12)).toEqual([
+        "2026-11-01T05:30:00.000Z", // 01:30 EDT; 01:30 EST (06:30Z) is skipped
+        "2026-11-02T06:30:00.000Z", // the next day's 01:30 EST, always queued ahead
+      ]);
+    });
+
+    it("runs a job that fires every hour in both passes, since they are different hours", async () => {
+      const runAts = await runAtsAcross("30 * * * *", "America/New_York", NOV_1_NY + 4 * HOUR, 4);
+      expect(runAts.slice(0, 3)).toEqual([
+        "2026-11-01T04:30:00.000Z", // 00:30 EDT
+        "2026-11-01T05:30:00.000Z", // 01:30 EDT
+        "2026-11-01T06:30:00.000Z", // 01:30 EST
+      ]);
+    });
+
+    it("works for a zone whose clocks go back by 30 minutes", async () => {
+      // Lord Howe Island, 2026-04-05: 02:00 (+11) becomes 01:30 (+10:30), so 01:30-01:59 repeats.
+      expect(await runAtsAcross("45 1 * * *", "Australia/Lord_Howe", Date.UTC(2026, 3, 4, 12), 12)).toEqual([
+        "2026-04-04T14:45:00.000Z", // 01:45 +11; 01:45 +10:30 (15:15Z) is skipped
+        "2026-04-05T15:15:00.000Z", // the next day's 01:45 +10:30
+      ]);
+    });
+  });
+
   it("keeps an already-queued occurrence when the payload changes, and uses the new payload after", async () => {
     const { clock, storage, scheduler } = setup();
     await scheduler().add(DAILY_9AM).tick(); // Jan 15 queued with the old payload
