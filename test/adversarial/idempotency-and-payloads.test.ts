@@ -107,21 +107,21 @@ describe.each(BACKENDS)("$name: payload/text parity", (backend) => {
     opened = undefined;
   });
 
-  knownBug(18, backend.name, ["postgres"])("S16/S19: a payload string containing U+0000 round-trips", async () => {
+  it("S16/S19: a payload string containing U+0000 round-trips", async () => {
     opened = await backend.open();
     const payload = { blob: "a\u0000b" };
     const job = await opened.storage.enqueue({ queue: "q", payload });
     expect((await opened.storage.get(job.id))?.payload).toEqual(payload);
   });
 
-  knownBug(18, backend.name, ["postgres"])("S16/S19: a payload string with a lone surrogate (valid JSON.stringify output) round-trips", async () => {
+  it("S16/S19: a payload string with a lone surrogate (valid JSON.stringify output) round-trips", async () => {
     opened = await backend.open();
     const payload = { s: "\uD800" };
     const job = await opened.storage.enqueue({ queue: "q", payload });
     expect((await opened.storage.get(job.id))?.payload).toEqual(payload);
   });
 
-  knownBug(18, backend.name, ["postgres"])("S9/S19: fail() records a handler error message that contains U+0000", async () => {
+  it("S9/S19: fail() records a handler error message that contains U+0000", async () => {
     opened = await backend.open();
     const s = opened.storage;
     const { id } = await s.enqueue({ queue: "q", payload: 1 });

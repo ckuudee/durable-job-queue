@@ -8,6 +8,7 @@ import {
 } from "./backoff.js";
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
 import { resolveRunAt } from "./schedule.js";
+import { assertStorableIdentifier, toStorableText } from "./text.js";
 import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, notHeldError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob, QueueStats } from "./types.js";
 
@@ -15,7 +16,7 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 
 // Bump when schemaSql changes. Like the SQLite backend there are no migrations
 // yet: a schema written by a different version is rejected with a clear error.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 // Schema names are interpolated into SQL (identifiers can't be bound as
 // parameters), so only plain lowercase identifiers are accepted. 63 is
@@ -28,7 +29,10 @@ CREATE TABLE ${schema}.jobs (
   seq          BIGINT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,  -- FIFO tiebreaker
   id           TEXT    NOT NULL UNIQUE,
   queue        TEXT    NOT NULL,
-  payload      JSONB   NOT NULL,
+  -- JSON as text, exactly as JSON.stringify wrote it. Not JSONB: JSONB rejects
+  -- the escapes JSON.stringify emits for U+0000 and for unpaired surrogates, so
+  -- some payloads SQLite stores would fail here (#18).
+  payload      TEXT    NOT NULL,
   status       TEXT    NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'dead')),
   attempts     INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL CHECK (max_attempts >= 1),
@@ -59,12 +63,12 @@ INSERT INTO ${schema}.jobq_meta (schema_version) VALUES (${SCHEMA_VERSION});
 /**
  * A row as node-postgres returns it. BIGINT columns arrive as strings, because
  * a 64-bit integer may not fit in a JS number; epoch milliseconds always do, so
- * toJob converts them. JSONB arrives already parsed.
+ * toJob converts them. The payload is JSON text, parsed by toJob.
  */
 interface PgRow {
   id: string;
   queue: string;
-  payload: unknown;
+  payload: string;
   status: JobStatus;
   attempts: number;
   max_attempts: number;
@@ -88,7 +92,7 @@ function toJob(row: PgRow): Job {
   return {
     id: row.id,
     queue: row.queue,
-    payload: row.payload,
+    payload: JSON.parse(row.payload),
     status: row.status,
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
@@ -285,11 +289,15 @@ export class PostgresStorage implements Storage {
     delayMs,
   }: NewJob): Promise<Job> {
     if (queue.trim() === "") throw new RangeError("queue must be a non-empty string");
+    assertStorableIdentifier("queue", queue);
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
       throw new RangeError("maxAttempts must be a positive integer");
     }
     assertLeaseMs(leaseMs);
-    if (idempotencyKey !== undefined) assertIdempotencyKey(idempotencyKey);
+    if (idempotencyKey !== undefined) {
+      assertIdempotencyKey(idempotencyKey);
+      assertStorableIdentifier("idempotencyKey", idempotencyKey);
+    }
     // Serialize here rather than letting node-postgres do it: it would turn a
     // top-level JS array into a PostgreSQL array literal, not JSON.
     const json = JSON.stringify(payload);
@@ -303,7 +311,7 @@ export class PostgresStorage implements Storage {
     const inserted = await this.pool.query<PgRow>(
       `INSERT INTO ${this.jobs}
          (id, queue, payload, status, max_attempts, created_at, run_at, lease_ms, idempotency_key)
-       VALUES ($1, $2, $3::jsonb, 'pending', $4, $5::bigint, $6::bigint, $7, $8)
+       VALUES ($1, $2, $3, 'pending', $4, $5::bigint, $6::bigint, $7, $8)
        ON CONFLICT (queue, idempotency_key) DO NOTHING
        RETURNING *`,
       [randomUUID(), queue, json, maxAttempts, now, scheduledAt, leaseMs, idempotencyKey ?? null],
@@ -318,13 +326,14 @@ export class PostgresStorage implements Storage {
     );
     const existing = rows[0];
     if (!existing) throw new Error("insert was ignored but no job holds the idempotency key");
-    if (canonicalize(existing.payload) !== canonicalize(JSON.parse(json))) {
+    if (canonicalize(JSON.parse(existing.payload)) !== canonicalize(JSON.parse(json))) {
       throw new IdempotencyConflictError(queue, idempotencyKey as string);
     }
     return toJob(existing);
   }
 
   async claim(queue: string, workerId: string): Promise<Job | null> {
+    assertStorableIdentifier("workerId", workerId);
     const now = this.now();
 
     // A job whose lease lapsed and that has used every attempt is not run again.
@@ -395,7 +404,8 @@ export class PostgresStorage implements Storage {
     if (rowCount === 0) throw notHeldError(id);
   }
 
-  async fail(id: string, leaseToken: string, error: string): Promise<Job> {
+  async fail(id: string, leaseToken: string, rawError: string): Promise<Job> {
+    const error = toStorableText(rawError);
     // Read the attempt count, decide retry vs dead, then write. FOR UPDATE locks
     // the row until commit, so a claimer can't take the job in between.
     const row = await this.transaction(async (client) => {

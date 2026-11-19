@@ -259,6 +259,7 @@ describe("Worker", () => {
     expect(() => new Worker(storage, { queue: "q", handler, concurrency: 0 })).toThrow(RangeError);
     expect(() => new Worker(storage, { queue: "q", handler, pollIntervalMs: 1.5 })).toThrow(RangeError);
     expect(() => new Worker(storage, { queue: "q", handler, workerId: "" })).toThrow(RangeError);
+    expect(() => new Worker(storage, { queue: "q", handler, workerId: "w\u0000" })).toThrow(RangeError); // #18
   });
 });
 
