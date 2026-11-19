@@ -48,18 +48,18 @@ describe.each(BACKENDS)("$name: boundaries", (backend) => {
     const second = await s.claim("q", "b");
     expect(second).toMatchObject({ id: first?.id, attempts: 2, workerId: "b" });
     // S8: the original holder lost it.
-    await expect(s.complete(first!.id, "a")).rejects.toBeInstanceOf(JobStateError);
-    await expect(s.fail(first!.id, "a", "x")).rejects.toBeInstanceOf(JobStateError);
-    await expect(s.heartbeat(first!.id, "a")).rejects.toBeInstanceOf(JobStateError);
+    await expect(s.complete(first!.id, first!.leaseToken!)).rejects.toBeInstanceOf(JobStateError);
+    await expect(s.fail(first!.id, first!.leaseToken!, "x")).rejects.toBeInstanceOf(JobStateError);
+    await expect(s.heartbeat(first!.id, first!.leaseToken!)).rejects.toBeInstanceOf(JobStateError);
   });
 
   it("S8: a holder whose lease lapsed can still complete if nobody re-claimed", async () => {
     const clock = new FakeClock();
     const s = await open(clock);
     const { id } = await s.enqueue({ queue: "q", payload: 1, leaseMs: 100 });
-    await s.claim("q", "a");
+    const held = await s.claim("q", "a");
     clock.advance(10_000);
-    await s.complete(id, "a");
+    await s.complete(id, held!.leaseToken!);
     expect((await s.get(id))?.status).toBe("completed");
   });
 
@@ -67,9 +67,9 @@ describe.each(BACKENDS)("$name: boundaries", (backend) => {
     const clock = new FakeClock();
     const s = await open(clock, { leaseMs: 50_000 });
     const { id } = await s.enqueue({ queue: "q", payload: 1, leaseMs: 300 });
-    await s.claim("q", "a");
+    const held = await s.claim("q", "a");
     clock.advance(200);
-    const beat = await s.heartbeat(id, "a");
+    const beat = await s.heartbeat(id, held!.leaseToken!);
     expect(beat.leaseUntil).toBe(clock.t + 300);
   });
 
@@ -124,15 +124,15 @@ describe.each(BACKENDS)("$name: boundaries", (backend) => {
     const { id } = await s.enqueue({ queue: "q", payload: 1, maxAttempts: 5 });
     const delays: number[] = [];
     for (let i = 0; i < 4; i++) {
-      await s.claim("q", "w");
-      const failed = await s.fail(id, "w", `boom ${i}`);
+      const held = await s.claim("q", "w");
+      const failed = await s.fail(id, held!.leaseToken!, `boom ${i}`);
       expect(failed.status).toBe("pending");
       delays.push(failed.runAt - clock.t);
       clock.t = failed.runAt;
     }
     expect(delays).toEqual([100, 300, 900, 1_000]);
-    await s.claim("q", "w");
-    expect((await s.fail(id, "w", "last")).status).toBe("dead");
+    const last = await s.claim("q", "w");
+    expect((await s.fail(id, last!.leaseToken!, "last")).status).toBe("dead");
   });
 
   it("B2: with jitter and random() = 0 the retry still waits at least delay/2", async () => {
@@ -140,8 +140,8 @@ describe.each(BACKENDS)("$name: boundaries", (backend) => {
     opened = await backend.open({ now: clock.now, random: () => 0, retry: { baseDelayMs: 1_000, jitter: true } });
     const s = opened.storage;
     const { id } = await s.enqueue({ queue: "q", payload: 1 });
-    await s.claim("q", "w");
-    const failed = await s.fail(id, "w", "x");
+    const held = await s.claim("q", "w");
+    const failed = await s.fail(id, held!.leaseToken!, "x");
     expect(failed.runAt - clock.t).toBe(500);
     clock.advance(499);
     expect(await s.claim("q", "w")).toBeNull();
@@ -151,8 +151,8 @@ describe.each(BACKENDS)("$name: boundaries", (backend) => {
     const clock = new FakeClock();
     const s = await open(clock);
     const { id } = await s.enqueue({ queue: "q", payload: 1, maxAttempts: 1 });
-    await s.claim("q", "w");
-    await s.fail(id, "w", "bad");
+    const held = await s.claim("q", "w");
+    await s.fail(id, held!.leaseToken!, "bad");
     await expect(s.requeueDead("no-such-id")).rejects.toBeInstanceOf(JobStateError);
     clock.advance(5_000);
     const requeued = await s.requeueDead(id);
@@ -166,12 +166,16 @@ describe.each(BACKENDS)("$name: boundaries", (backend) => {
     const s = await open(clock);
     const ids: string[] = [];
     for (let i = 0; i < 3; i++) ids.push((await s.enqueue({ queue: "q", payload: i, maxAttempts: 1 })).id);
-    for (let i = 0; i < 3; i++) await s.claim("q", `w${i}`);
+    const tokens = new Map<string, string>();
+    for (let i = 0; i < 3; i++) {
+      const held = await s.claim("q", `w${i}`);
+      tokens.set(held!.id, held!.leaseToken!);
+    }
     // Fail them in reverse enqueue order, so failure order != creation order.
     const reversed = [...ids].reverse();
     for (const [i, id] of reversed.entries()) {
       clock.advance(10);
-      await s.fail(id, `w${ids.indexOf(id)}`, `x${i}`);
+      await s.fail(id, tokens.get(id)!, `x${i}`);
     }
     expect((await s.listDead("q")).map((j) => j.id)).toEqual(reversed);
     expect((await s.listDead("q", 2)).map((j) => j.id)).toEqual(reversed.slice(0, 2));

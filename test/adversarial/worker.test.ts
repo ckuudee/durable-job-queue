@@ -216,7 +216,7 @@ describe.each(BACKENDS)("$name: Worker", (backend) => {
     expect(ev.violations()).toEqual([]);
   });
 
-  knownBug(17, backend.name)("S1/R133: within one Worker (concurrency 2), a job whose lease lapsed during a DB blip is not run by two slots at once", async () => {
+  it("S1/R133: within one Worker (concurrency 2), a job whose lease lapsed during a DB blip is not run by two slots at once", async () => {
     opened = await backend.open();
     const { storage, faults } = faulty(opened.storage);
     const { id } = await opened.storage.enqueue({ queue: "q", payload: 1, leaseMs: 60 });

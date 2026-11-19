@@ -113,7 +113,7 @@ describe.runIf(url)("PostgresStorage (needs JOBQ_PG_URL)", () => {
             const job = await store.claim("q", `worker-${i}`);
             if (!job) return handled;
             handled.push(job.id);
-            await store.complete(job.id, `worker-${i}`);
+            await store.complete(job.id, job.leaseToken!);
           }
         }),
       );

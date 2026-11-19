@@ -18,6 +18,13 @@ export interface Job {
   maxAttempts: number;
   /** Worker currently holding (or, for dead jobs, last holding) the job. */
   workerId: string | null;
+  /**
+   * While running: a fencing token unique to this claim. `heartbeat`,
+   * `complete` and `fail` take it, so a holder whose claim was superseded is
+   * rejected even when the new claim has the same `workerId` (another slot of
+   * the same Worker, or a replica configured with a shared id). Null otherwise.
+   */
+  leaseToken: string | null;
   /** Most recent failure, or a note that the previous worker's lease expired. */
   error: string | null;
   /** Timestamps are epoch milliseconds. */

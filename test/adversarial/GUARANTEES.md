@@ -95,7 +95,7 @@ i.e. `it.fails` on the affected backends. When a fix lands, that test fails
 | Issue | Severity | Guarantee broken | Backends |
 |-------|----------|------------------|----------|
 | #16 (fixed) | high | W7: stop() timeout keeps heartbeating a stuck job, so its lease never lapses | both |
-| #17 | high | S1/S8: lease fenced by workerId only; one Worker can run a job twice at once | both |
+| #17 (fixed) | high | S1/S8: lease fenced by workerId only; one Worker can run a job twice at once | both |
 | #18 | medium | S16/S19: U+0000 / lone surrogates rejected in payloads and error text | PostgreSQL |
 | #19 | medium | SC6: daily job runs twice on the DST fall-back day | both |
 | #20 | medium-low | SC7: stop() + start() lets ticks overlap; a tick runs after stop() resolves | both |

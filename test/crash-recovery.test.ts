@@ -41,7 +41,7 @@ it("recovers a job whose worker process was killed mid-job", async () => {
   expect(recovered).toMatchObject({ id, workerId: "survivor", attempts: 2, payload: "important" });
   expect(recovered?.error).toMatch(/lease expired \(worker crashed-worker\)/);
 
-  await store.complete(id, "survivor");
+  await store.complete(id, recovered!.leaseToken!);
   expect(await store.get(id)).toMatchObject({ status: "completed", workerId: "survivor" });
   await store.close();
 }, 30_000);

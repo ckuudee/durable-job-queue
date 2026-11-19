@@ -91,6 +91,12 @@ export interface StopOptions {
   timeoutMs?: number;
 }
 
+/** One slot's hold on a job. `token` changes if this Worker re-claims the job while running it. */
+interface Lease {
+  token: string;
+  controller: AbortController;
+}
+
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isSafeInteger(value) || value < 1) throw new RangeError(`${name} must be a positive integer`);
 }
@@ -120,6 +126,8 @@ export class Worker extends EventEmitter<WorkerEvents> {
   private running = false;
   private loops: Promise<void>[] = [];
   private readonly inFlight = new Set<AbortController>();
+  /** Jobs this Worker's slots are running, by job id. See loop() for why. */
+  private readonly held = new Map<string, Lease>();
   private readonly sleepers = new Set<() => void>();
 
   constructor(storage: Storage, options: WorkerOptions) {
@@ -197,6 +205,17 @@ export class Worker extends EventEmitter<WorkerEvents> {
         await this.sleep(this.pollIntervalMs);
         continue;
       }
+      // The lease of a job one of our own slots is still running lapsed (say,
+      // heartbeats failed during a database blip) and this slot re-claimed it.
+      // Running the handler again would run the job twice at once in this
+      // process (#17). Instead the running slot carries on under the new claim's
+      // token; the old token is now rejected by storage. A slot that already gave
+      // the job up (aborted) doesn't count: the job runs again normally.
+      const running = job && this.held.get(job.id);
+      if (job && running && !running.controller.signal.aborted) {
+        running.token = job.leaseToken as string; // always set on a job claim() returned
+        continue;
+      }
       // A job claimed just as stop() was called is still ours: run it.
       if (job) {
         this.emitSafely("job:claimed", { job });
@@ -209,10 +228,15 @@ export class Worker extends EventEmitter<WorkerEvents> {
 
   private async run(job: Job): Promise<void> {
     const controller = new AbortController();
+    // Storage fences heartbeat/complete/fail by the claim's token, so a slot whose
+    // job was re-claimed elsewhere is rejected even under the same workerId (#17).
+    // Read lease.token at each call: loop() may hand this slot a newer claim.
+    const lease: Lease = { token: job.leaseToken as string, controller };
     this.inFlight.add(controller);
+    this.held.set(job.id, lease);
 
     const heartbeat = setInterval(() => {
-      this.storage.heartbeat(job.id, this.workerId).catch((err: unknown) => {
+      this.storage.heartbeat(job.id, lease.token).catch((err: unknown) => {
         // A lost job stops the heartbeat via onAbort.
         if (err instanceof JobStateError) controller.abort(err);
         // Anything else (say, a network blip) is reported and retried on the next beat.
@@ -251,11 +275,11 @@ export class Worker extends EventEmitter<WorkerEvents> {
         if (failure) {
           const { error } = failure;
           const failed = await this.storage.fail(
-            job.id, this.workerId, error instanceof Error ? error.message : String(error),
+            job.id, lease.token, error instanceof Error ? error.message : String(error),
           );
           this.emitSafely("job:failed", { job, error, durationMs, willRetry: failed.status === "pending" });
         } else {
-          await this.storage.complete(job.id, this.workerId);
+          await this.storage.complete(job.id, lease.token);
           this.emitSafely("job:completed", { job, durationMs });
         }
       } catch (err) {
@@ -267,6 +291,7 @@ export class Worker extends EventEmitter<WorkerEvents> {
     } finally {
       clearInterval(heartbeat);
       this.inFlight.delete(controller);
+      if (this.held.get(job.id) === lease) this.held.delete(job.id);
     }
   }
 

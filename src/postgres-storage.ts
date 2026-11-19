@@ -8,14 +8,14 @@ import {
 } from "./backoff.js";
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
 import { resolveRunAt } from "./schedule.js";
-import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
+import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, notHeldError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob, QueueStats } from "./types.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 
 // Bump when schemaSql changes. Like the SQLite backend there are no migrations
 // yet: a schema written by a different version is rejected with a clear error.
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 // Schema names are interpolated into SQL (identifiers can't be bound as
 // parameters), so only plain lowercase identifiers are accepted. 63 is
@@ -33,6 +33,7 @@ CREATE TABLE ${schema}.jobs (
   attempts     INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL CHECK (max_attempts >= 1),
   worker_id    TEXT,
+  lease_token  TEXT,                              -- fencing token, set only while running
   error        TEXT,
   created_at   BIGINT  NOT NULL,                  -- epoch ms, from the injected clock
   run_at       BIGINT  NOT NULL,                  -- earliest claim time (retry backoff)
@@ -68,6 +69,7 @@ interface PgRow {
   attempts: number;
   max_attempts: number;
   worker_id: string | null;
+  lease_token: string | null;
   error: string | null;
   created_at: string;
   run_at: string;
@@ -91,6 +93,7 @@ function toJob(row: PgRow): Job {
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
     workerId: row.worker_id,
+    leaseToken: row.lease_token,
     error: row.error,
     createdAt: Number(row.created_at),
     runAt: Number(row.run_at),
@@ -329,7 +332,7 @@ export class PostgresStorage implements Storage {
     // instead of waited on, so two claimers never block (or deadlock) each other.
     await this.pool.query(
       `UPDATE ${this.jobs}
-          SET status = 'dead', finished_at = $1::bigint, lease_until = NULL,
+          SET status = 'dead', finished_at = $1::bigint, lease_until = NULL, lease_token = NULL,
               error = 'lease expired (worker ' || worker_id || ') after ' || attempts || ' attempts'
         WHERE id IN (
           SELECT id FROM ${this.jobs}
@@ -352,7 +355,7 @@ export class PostgresStorage implements Storage {
           SET error = CASE WHEN status = 'running'
                            THEN 'lease expired (worker ' || worker_id || ')'
                            ELSE error END,
-              status = 'running', worker_id = $1, claimed_at = $2::bigint,
+              status = 'running', worker_id = $1, lease_token = $4, claimed_at = $2::bigint,
               attempts = attempts + 1, lease_until = $2::bigint + lease_ms
         WHERE id = (
           SELECT id FROM ${this.jobs}
@@ -364,50 +367,51 @@ export class PostgresStorage implements Storage {
            FOR UPDATE SKIP LOCKED
         )
        RETURNING *`,
-      [workerId, now, queue],
+      [workerId, now, queue, randomUUID()],
     );
     const row = rows[0];
     return row ? toJob(row) : null;
   }
 
-  async heartbeat(id: string, workerId: string): Promise<Job> {
+  async heartbeat(id: string, leaseToken: string): Promise<Job> {
     const { rows } = await this.pool.query<PgRow>(
       `UPDATE ${this.jobs} SET lease_until = $1::bigint + lease_ms
-        WHERE id = $2 AND worker_id = $3 AND status = 'running'
+        WHERE id = $2 AND lease_token = $3 AND status = 'running'
        RETURNING *`,
-      [this.now(), id, workerId],
+      [this.now(), id, leaseToken],
     );
     const row = rows[0];
-    if (!row) throw new JobStateError(`job ${id} is not running under worker ${workerId}`);
+    if (!row) throw notHeldError(id);
     return toJob(row);
   }
 
-  async complete(id: string, workerId: string): Promise<void> {
+  async complete(id: string, leaseToken: string): Promise<void> {
     const { rowCount } = await this.pool.query(
-      `UPDATE ${this.jobs} SET status = 'completed', finished_at = $1::bigint, lease_until = NULL
-        WHERE id = $2 AND worker_id = $3 AND status = 'running'`,
-      [this.now(), id, workerId],
+      `UPDATE ${this.jobs}
+          SET status = 'completed', finished_at = $1::bigint, lease_until = NULL, lease_token = NULL
+        WHERE id = $2 AND lease_token = $3 AND status = 'running'`,
+      [this.now(), id, leaseToken],
     );
-    if (rowCount === 0) throw new JobStateError(`job ${id} is not running under worker ${workerId}`);
+    if (rowCount === 0) throw notHeldError(id);
   }
 
-  async fail(id: string, workerId: string, error: string): Promise<Job> {
+  async fail(id: string, leaseToken: string, error: string): Promise<Job> {
     // Read the attempt count, decide retry vs dead, then write. FOR UPDATE locks
     // the row until commit, so a claimer can't take the job in between.
     const row = await this.transaction(async (client) => {
       const held = await client.query<PgRow>(
-        `SELECT * FROM ${this.jobs} WHERE id = $1 AND worker_id = $2 AND status = 'running' FOR UPDATE`,
-        [id, workerId],
+        `SELECT * FROM ${this.jobs} WHERE id = $1 AND lease_token = $2 AND status = 'running' FOR UPDATE`,
+        [id, leaseToken],
       );
       const job = held.rows[0];
-      if (!job) throw new JobStateError(`job ${id} is not running under worker ${workerId}`);
+      if (!job) throw notHeldError(id);
 
       const now = this.now();
       const result =
         job.attempts >= job.max_attempts
           ? await client.query<PgRow>(
               `UPDATE ${this.jobs}
-                  SET status = 'dead', error = $1, finished_at = $2::bigint, lease_until = NULL
+                  SET status = 'dead', error = $1, finished_at = $2::bigint, lease_until = NULL, lease_token = NULL
                 WHERE id = $3
                RETURNING *`,
               [error, now, id],
@@ -416,7 +420,7 @@ export class PostgresStorage implements Storage {
               // Retrying releases the worker's hold so the job looks like any other pending job.
               `UPDATE ${this.jobs}
                   SET status = 'pending', error = $1, run_at = $2::bigint,
-                      worker_id = NULL, claimed_at = NULL, lease_until = NULL
+                      worker_id = NULL, lease_token = NULL, claimed_at = NULL, lease_until = NULL
                 WHERE id = $3
                RETURNING *`,
               [error, now + computeBackoff(job.attempts, this.retry, this.random), id],
@@ -438,7 +442,7 @@ export class PostgresStorage implements Storage {
     const { rows } = await this.pool.query<PgRow>(
       `UPDATE ${this.jobs}
           SET status = 'pending', attempts = 0, run_at = $1::bigint,
-              worker_id = NULL, claimed_at = NULL, finished_at = NULL, lease_until = NULL
+              worker_id = NULL, lease_token = NULL, claimed_at = NULL, finished_at = NULL, lease_until = NULL
         WHERE id = $2 AND status = 'dead'
        RETURNING *`,
       [this.now(), id],

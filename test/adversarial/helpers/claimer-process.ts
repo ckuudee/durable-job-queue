@@ -38,11 +38,11 @@ while (idle < args.idleRounds) {
   idle = 0;
   process.stdout.write(`${JSON.stringify({ id: job.id, attempts: job.attempts, worker: args.workerId })}\n`);
   try {
-    if (args.mode === "complete") await storage.complete(job.id, args.workerId);
+    if (args.mode === "complete") await storage.complete(job.id, job.leaseToken!);
     else if (args.mode === "mixed") {
       const r = Math.random();
-      if (r < 0.4) await storage.complete(job.id, args.workerId);
-      else if (r < 0.8) await storage.fail(job.id, args.workerId, "mixed failure");
+      if (r < 0.4) await storage.complete(job.id, job.leaseToken!);
+      else if (r < 0.8) await storage.fail(job.id, job.leaseToken!, "mixed failure");
       // else: drop it, as if this process crashed holding the job
     }
   } catch (err) {

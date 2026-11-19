@@ -10,7 +10,7 @@ import {
 } from "./backoff.js";
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
 import { resolveRunAt } from "./schedule.js";
-import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, type Storage } from "./storage.js";
+import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, notHeldError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob, QueueStats } from "./types.js";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -64,7 +64,7 @@ function toQueueStats(row: StatsRow, now: number): QueueStats {
 // Bump when SCHEMA_SQL changes. There are no migrations yet: a database file
 // with a different version is rejected with a clear error instead of failing
 // later with a confusing "no such column".
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA_SQL = `
 CREATE TABLE jobs (
@@ -76,6 +76,7 @@ CREATE TABLE jobs (
   attempts     INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL CHECK (max_attempts >= 1),
   worker_id    TEXT,
+  lease_token  TEXT,                               -- fencing token, set only while running
   error        TEXT,
   created_at   INTEGER NOT NULL,
   run_at       INTEGER NOT NULL,                   -- earliest claim time (retry backoff)
@@ -103,6 +104,7 @@ interface JobRow {
   attempts: number;
   max_attempts: number;
   worker_id: string | null;
+  lease_token: string | null;
   error: string | null;
   created_at: number;
   run_at: number;
@@ -122,6 +124,7 @@ function toJob(row: JobRow): Job {
     attempts: row.attempts,
     maxAttempts: row.max_attempts,
     workerId: row.worker_id,
+    leaseToken: row.lease_token,
     error: row.error,
     createdAt: row.created_at,
     runAt: row.run_at,
@@ -217,7 +220,7 @@ export class SqliteStorage implements Storage {
     // A job whose lease lapsed and that has used every attempt is not run again.
     this.expireExhausted = this.db.prepare(
       `UPDATE jobs
-          SET status = 'dead', finished_at = ?, lease_until = NULL,
+          SET status = 'dead', finished_at = ?, lease_until = NULL, lease_token = NULL,
               error = 'lease expired (worker ' || worker_id || ') after ' || attempts || ' attempts'
         WHERE queue = ? AND status = 'running' AND lease_until <= ? AND attempts >= max_attempts`,
     );
@@ -231,7 +234,7 @@ export class SqliteStorage implements Storage {
          SET error = CASE WHEN status = 'running'
                           THEN 'lease expired (worker ' || worker_id || ')'
                           ELSE error END,
-             status = 'running', worker_id = ?, claimed_at = ?,
+             status = 'running', worker_id = ?, lease_token = ?, claimed_at = ?,
              attempts = attempts + 1, lease_until = ? + lease_ms
        WHERE id = (
          SELECT id FROM jobs
@@ -243,25 +246,25 @@ export class SqliteStorage implements Storage {
       RETURNING *`);
     this.extendLease = this.db.prepare(
       `UPDATE jobs SET lease_until = ? + lease_ms
-        WHERE id = ? AND worker_id = ? AND status = 'running'
+        WHERE id = ? AND lease_token = ? AND status = 'running'
        RETURNING *`,
     );
     this.markCompleted = this.db.prepare(
-      `UPDATE jobs SET status = 'completed', finished_at = ?, lease_until = NULL
-        WHERE id = ? AND worker_id = ? AND status = 'running'`,
+      `UPDATE jobs SET status = 'completed', finished_at = ?, lease_until = NULL, lease_token = NULL
+        WHERE id = ? AND lease_token = ? AND status = 'running'`,
     );
     this.selectHeld = this.db.prepare(
-      "SELECT * FROM jobs WHERE id = ? AND worker_id = ? AND status = 'running'",
+      "SELECT * FROM jobs WHERE id = ? AND lease_token = ? AND status = 'running'",
     );
     // Retrying releases the worker's hold so the job looks like any other pending job.
     this.markRetry = this.db.prepare(
       `UPDATE jobs
           SET status = 'pending', error = ?, run_at = ?,
-              worker_id = NULL, claimed_at = NULL, lease_until = NULL
+              worker_id = NULL, lease_token = NULL, claimed_at = NULL, lease_until = NULL
         WHERE id = ?`,
     );
     this.markDead = this.db.prepare(
-      "UPDATE jobs SET status = 'dead', error = ?, finished_at = ?, lease_until = NULL WHERE id = ?",
+      "UPDATE jobs SET status = 'dead', error = ?, finished_at = ?, lease_until = NULL, lease_token = NULL WHERE id = ?",
     );
     this.selectDead = this.db.prepare(
       "SELECT * FROM jobs WHERE queue = ? AND status = 'dead' ORDER BY finished_at, seq LIMIT ?",
@@ -269,7 +272,7 @@ export class SqliteStorage implements Storage {
     this.markRequeued = this.db.prepare(
       `UPDATE jobs
           SET status = 'pending', attempts = 0, run_at = ?,
-              worker_id = NULL, claimed_at = NULL, finished_at = NULL, lease_until = NULL
+              worker_id = NULL, lease_token = NULL, claimed_at = NULL, finished_at = NULL, lease_until = NULL
         WHERE id = ? AND status = 'dead'`,
     );
     this.selectById = this.db.prepare("SELECT * FROM jobs WHERE id = ?");
@@ -289,13 +292,13 @@ export class SqliteStorage implements Storage {
     this.claimTx = this.db.transaction((workerId: string, queue: string): JobRow | undefined => {
       const now = this.now();
       this.expireExhausted.run(now, queue, now);
-      return this.claimNext.get(workerId, now, now, queue, now, now) as JobRow | undefined;
+      return this.claimNext.get(workerId, randomUUID(), now, now, queue, now, now) as JobRow | undefined;
     });
 
     // Read the attempt count, then decide retry vs dead, then write.
-    this.failTx = this.db.transaction((id: string, workerId: string, error: string): JobRow => {
-      const held = this.selectHeld.get(id, workerId) as JobRow | undefined;
-      if (!held) throw new JobStateError(`job ${id} is not running under worker ${workerId}`);
+    this.failTx = this.db.transaction((id: string, leaseToken: string, error: string): JobRow => {
+      const held = this.selectHeld.get(id, leaseToken) as JobRow | undefined;
+      if (!held) throw notHeldError(id);
 
       const now = this.now();
       if (held.attempts >= held.max_attempts) {
@@ -370,19 +373,19 @@ export class SqliteStorage implements Storage {
     return row ? toJob(row) : null;
   }
 
-  async heartbeat(id: string, workerId: string): Promise<Job> {
-    const row = this.extendLease.get(this.now(), id, workerId) as JobRow | undefined;
-    if (!row) throw new JobStateError(`job ${id} is not running under worker ${workerId}`);
+  async heartbeat(id: string, leaseToken: string): Promise<Job> {
+    const row = this.extendLease.get(this.now(), id, leaseToken) as JobRow | undefined;
+    if (!row) throw notHeldError(id);
     return toJob(row);
   }
 
-  async complete(id: string, workerId: string): Promise<void> {
-    const { changes } = this.markCompleted.run(this.now(), id, workerId);
-    if (changes === 0) throw new JobStateError(`job ${id} is not running under worker ${workerId}`);
+  async complete(id: string, leaseToken: string): Promise<void> {
+    const { changes } = this.markCompleted.run(this.now(), id, leaseToken);
+    if (changes === 0) throw notHeldError(id);
   }
 
-  async fail(id: string, workerId: string, error: string): Promise<Job> {
-    return toJob(this.failTx.immediate(id, workerId, error));
+  async fail(id: string, leaseToken: string, error: string): Promise<Job> {
+    return toJob(this.failTx.immediate(id, leaseToken, error));
   }
 
   async listDead(queue: string, limit = 100): Promise<Job[]> {

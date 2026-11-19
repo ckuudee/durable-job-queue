@@ -21,7 +21,7 @@ async function drain(storage: Storage, queue = "q"): Promise<string[]> {
   const ids: string[] = [];
   for (let job = await storage.claim(queue, "w"); job; job = await storage.claim(queue, "w")) {
     ids.push(job.id);
-    await storage.complete(job.id, "w");
+    await storage.complete(job.id, job.leaseToken!);
   }
   return ids;
 }

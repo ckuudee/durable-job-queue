@@ -66,8 +66,8 @@ describe("dashboard", () => {
   it("lists dead jobs for a queue without their payloads", async () => {
     const { storage, dashboard } = await setup();
     const { id } = await storage.enqueue({ queue: "q", payload: { email: "a@example.com" }, maxAttempts: 1 });
-    await storage.claim("q", "w1");
-    await storage.fail(id, "w1", "mailbox full");
+    const claimed = await storage.claim("q", "w1");
+    await storage.fail(id, claimed!.leaseToken!, "mailbox full");
 
     const res = await get(dashboard.port, "/api/dead?queue=q");
     expect(res.status).toBe(200);
@@ -81,8 +81,8 @@ describe("dashboard", () => {
     const { storage, dashboard } = await setup({ deadLimit: 2 });
     for (let i = 0; i < 3; i++) {
       const { id } = await storage.enqueue({ queue: "q", payload: i, maxAttempts: 1 });
-      await storage.claim("q", "w1");
-      await storage.fail(id, "w1", "x");
+      const claimed = await storage.claim("q", "w1");
+      await storage.fail(id, claimed!.leaseToken!, "x");
     }
     expect(JSON.parse((await get(dashboard.port, "/api/dead?queue=q")).body).jobs).toHaveLength(2);
   });
