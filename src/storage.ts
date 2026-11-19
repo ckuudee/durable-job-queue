@@ -11,6 +11,11 @@ export class JobStateError extends Error {
   }
 }
 
+/** The JobStateError for heartbeat/complete/fail with a lease token that isn't the job's current claim. */
+export function notHeldError(id: string): JobStateError {
+  return new JobStateError(`job ${id} is not running under this lease (it finished, or was re-claimed)`);
+}
+
 /** Thrown when an idempotency key is reused with a different payload: almost certainly a caller bug. */
 export class IdempotencyConflictError extends Error {
   constructor(queue: string, key: string) {
@@ -30,7 +35,9 @@ export class IdempotencyConflictError extends Error {
  *   (crash, hang), the lease lapses and the job is handed to another worker.
  *   Delivery is therefore at-least-once: a job can run more than once.
  * - A worker that lost its job (lease lapsed and the job was re-claimed) can no
- *   longer complete, fail or heartbeat it: those throw JobStateError.
+ *   longer complete, fail or heartbeat it: those throw JobStateError. Holders are
+ *   identified by the claim's `leaseToken` (a fencing token), not by `workerId`,
+ *   so this holds even when the new claim comes from the same worker id.
  */
 export interface Storage {
   /**
@@ -47,7 +54,7 @@ export interface Storage {
 
   /**
    * Atomically take the oldest ready job in `queue` for `workerId`, moving it
-   * to `running` with a fresh lease. A job is ready when it is pending and its
+   * to `running` with a fresh lease and a new `leaseToken`. A job is ready when it is pending and its
    * `runAt` has passed, or when it is running and its lease has lapsed (the
    * previous worker is presumed dead). A lapsed job that has already used all
    * its attempts is marked dead instead. Returns null when nothing is ready.
@@ -55,26 +62,27 @@ export interface Storage {
   claim(queue: string, workerId: string): Promise<Job | null>;
 
   /**
-   * Extend the lease of a job `workerId` holds by the job's `leaseMs`. Workers
-   * call this periodically while a job runs; a JobStateError means the job was
-   * lost and the worker should stop working on it.
+   * Extend the lease of the claim identified by `leaseToken` (from the job
+   * `claim` returned) by the job's `leaseMs`. Workers call this periodically
+   * while a job runs; a JobStateError means the job was lost and the worker
+   * should stop working on it.
    */
-  heartbeat(id: string, workerId: string): Promise<Job>;
+  heartbeat(id: string, leaseToken: string): Promise<Job>;
 
   /**
-   * Mark a running job done. Throws JobStateError unless `workerId` holds it.
-   * A worker whose lease lapsed can still complete, as long as nobody has
-   * re-claimed the job yet.
+   * Mark a running job done. Throws JobStateError unless `leaseToken` is the
+   * job's current claim. A worker whose lease lapsed can still complete, as long
+   * as nobody has re-claimed the job yet.
    */
-  complete(id: string, workerId: string): Promise<void>;
+  complete(id: string, leaseToken: string): Promise<void>;
 
   /**
    * Record a failed attempt. If attempts remain, the job returns to `pending`
    * with `runAt` pushed back by the retry backoff; otherwise it becomes `dead`.
    * Returns the updated job so the caller can see which happened. Throws
-   * JobStateError unless `workerId` holds the job.
+   * JobStateError unless `leaseToken` is the job's current claim.
    */
-  fail(id: string, workerId: string, error: string): Promise<Job>;
+  fail(id: string, leaseToken: string, error: string): Promise<Job>;
 
   /** Dead jobs in `queue`, oldest failure first. */
   listDead(queue: string, limit?: number): Promise<Job[]>;

@@ -208,11 +208,12 @@ export class Worker extends EventEmitter<WorkerEvents> {
   }
 
   private async run(job: Job): Promise<void> {
+    const leaseToken = job.leaseToken as string; // always set on a job claim() returned
     const controller = new AbortController();
     this.inFlight.add(controller);
 
     const heartbeat = setInterval(() => {
-      this.storage.heartbeat(job.id, this.workerId).catch((err: unknown) => {
+      this.storage.heartbeat(job.id, leaseToken).catch((err: unknown) => {
         // A lost job stops the heartbeat via onAbort.
         if (err instanceof JobStateError) controller.abort(err);
         // Anything else (say, a network blip) is reported and retried on the next beat.
@@ -251,11 +252,11 @@ export class Worker extends EventEmitter<WorkerEvents> {
         if (failure) {
           const { error } = failure;
           const failed = await this.storage.fail(
-            job.id, this.workerId, error instanceof Error ? error.message : String(error),
+            job.id, leaseToken, error instanceof Error ? error.message : String(error),
           );
           this.emitSafely("job:failed", { job, error, durationMs, willRetry: failed.status === "pending" });
         } else {
-          await this.storage.complete(job.id, this.workerId);
+          await this.storage.complete(job.id, leaseToken);
           this.emitSafely("job:completed", { job, durationMs });
         }
       } catch (err) {

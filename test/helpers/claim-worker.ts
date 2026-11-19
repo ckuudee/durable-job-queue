@@ -13,8 +13,8 @@ for (;;) {
   const job = await store.claim("q", workerId);
   if (!job) break;
   handled.push(job.id);
-  if (mode === "fail") await store.fail(job.id, workerId, "boom");
-  else await store.complete(job.id, workerId);
+  if (mode === "fail") await store.fail(job.id, job.leaseToken!, "boom");
+  else await store.complete(job.id, job.leaseToken!);
 }
 
 await store.close();

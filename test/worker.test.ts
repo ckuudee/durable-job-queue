@@ -388,9 +388,9 @@ describe("Worker events", () => {
     const { storage } = setup();
     const recording = gate();
     const slow: Storage = Object.assign(Object.create(storage) as Storage, {
-      complete: async (id: string, workerId: string) => {
+      complete: async (id: string, leaseToken: string) => {
         await recording.opened; // hold complete() in flight
-        return storage.complete(id, workerId);
+        return storage.complete(id, leaseToken);
       },
     });
     const job = await storage.enqueue({ queue: "q", payload: 1 });

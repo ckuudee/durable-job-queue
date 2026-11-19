@@ -78,12 +78,12 @@ describe.each(BACKENDS)("$name: idempotency keys", (backend) => {
     const again = await s.enqueue({ queue: "q", idempotencyKey: "k", payload: 1, maxAttempts: 9, leaseMs: 99, runAt: 0 });
     expect(again).toMatchObject({ id: first.id, maxAttempts: 1, leaseMs: 1_234, runAt: first.runAt });
     clock.advance(50);
-    await s.claim("q", "w");
-    await s.fail(first.id, "w", "nope");
+    const held = await s.claim("q", "w");
+    await s.fail(first.id, held!.leaseToken!, "nope");
     expect((await s.enqueue({ queue: "q", idempotencyKey: "k", payload: 1 })).status).toBe("dead");
     await s.requeueDead(first.id);
-    await s.claim("q", "w");
-    await s.complete(first.id, "w");
+    const again2 = await s.claim("q", "w");
+    await s.complete(first.id, again2!.leaseToken!);
     const done = await s.enqueue({ queue: "q", idempotencyKey: "k", payload: 1 });
     expect(done).toMatchObject({ id: first.id, status: "completed" });
     expect((await s.stats("q"))[0]).toMatchObject({ completed: 1, ready: 0 });
@@ -125,9 +125,9 @@ describe.each(BACKENDS)("$name: payload/text parity", (backend) => {
     opened = await backend.open();
     const s = opened.storage;
     const { id } = await s.enqueue({ queue: "q", payload: 1 });
-    await s.claim("q", "w");
+    const held = await s.claim("q", "w");
     // e.g. an error thrown while parsing a binary upload, quoting the bad bytes
-    const failed = await s.fail(id, "w", "unexpected byte \u0000 at offset 3");
+    const failed = await s.fail(id, held!.leaseToken!, "unexpected byte \u0000 at offset 3");
     expect(failed.status).toBe("pending");
   });
 });
@@ -144,10 +144,10 @@ describe.each(BACKENDS)("$name: retry backoff produces a storable runAt", (backe
     opened = await backend.open({ now: clock.now, retry: { baseDelayMs: 1_001, factor: 1.5, maxDelayMs: 60_000, jitter: false } });
     const s = opened.storage;
     const { id } = await s.enqueue({ queue: "q", payload: 1, maxAttempts: 5 });
-    await s.claim("q", "w");
-    clock.t = (await s.fail(id, "w", "1")).runAt;
-    await s.claim("q", "w");
-    const second = await s.fail(id, "w", "2"); // 1001 * 1.5 = 1501.5 ms
+    const first = await s.claim("q", "w");
+    clock.t = (await s.fail(id, first!.leaseToken!, "1")).runAt;
+    const retry = await s.claim("q", "w");
+    const second = await s.fail(id, retry!.leaseToken!, "2"); // 1001 * 1.5 = 1501.5 ms
     expect(second.status).toBe("pending");
     expect(Number.isInteger(second.runAt)).toBe(true);
   });
@@ -159,8 +159,8 @@ describe.each(BACKENDS)("$name: retry backoff produces a storable runAt", (backe
     const { id } = await s.enqueue({ queue: "q", payload: 1, maxAttempts: 1_100 });
     let last;
     for (let i = 0; i < 1_030; i++) {
-      await s.claim("q", "w");
-      last = await s.fail(id, "w", String(i));
+      const held = await s.claim("q", "w");
+      last = await s.fail(id, held!.leaseToken!, String(i));
     }
     expect(last).toMatchObject({ status: "pending", runAt: clock.t, attempts: 1_030 });
   }, 60_000);

@@ -24,7 +24,7 @@ describe("SqliteStorage clock", () => {
     expect(claimed?.claimedAt).toBe(2_500);
 
     t = 4_000;
-    await store.complete(job.id, "w1");
+    await store.complete(job.id, claimed!.leaseToken!);
     expect((await store.get(job.id))?.finishedAt).toBe(4_000);
     await store.close();
   });
@@ -39,8 +39,8 @@ describe("SqliteStorage options", () => {
       random: () => 0,
     });
     const { id } = await store.enqueue({ queue: "q", payload: 1 });
-    await store.claim("q", "w1");
-    expect((await store.fail(id, "w1", "x")).runAt).toBe(500); // lower bound of [500, 1000]
+    const claimed = await store.claim("q", "w1");
+    expect((await store.fail(id, claimed!.leaseToken!, "x")).runAt).toBe(500); // lower bound of [500, 1000]
     await store.close();
   });
 
