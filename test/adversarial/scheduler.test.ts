@@ -23,7 +23,7 @@ describe.each(BACKENDS)("$name: Scheduler", (backend) => {
 
   describe.each([
     { label: "spring forward (2:30 does not exist on 2026-03-08)", cron: "30 2 * * *", from: Date.UTC(2026, 2, 6, 12), days: 4, bug: undefined },
-    { label: "fall back (1:30 happens twice on 2026-11-01)", cron: "30 1 * * *", from: Date.UTC(2026, 9, 30, 12), days: 4, bug: 19 },
+    { label: "fall back (1:30 happens twice on 2026-11-01)", cron: "30 1 * * *", from: Date.UTC(2026, 9, 30, 12), days: 4, bug: undefined },
   ])("SC6: daily job in America/New_York across $label", ({ cron, from, days, bug }) => {
     (bug ? knownBug(bug, backend.name) : it)("runs exactly once per local calendar day", async () => {
       const clock = new FakeClock(from);

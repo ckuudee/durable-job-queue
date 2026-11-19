@@ -127,6 +127,8 @@ await scheduler.stop();
 
 The scheduler stores nothing of its own. Each tick enqueues upcoming occurrences as delayed jobs with the idempotency key `cron:<name>:<time>`, so running several schedulers is safe. After downtime, the occurrence that was already queued runs late, and occurrences missed entirely are skipped rather than all fired at once.
 
+Daylight saving time follows classic cron. When clocks spring forward, a time that doesn't exist that day (2:30 in New York) runs at the next valid time (3:30). When clocks fall back and an hour repeats, a job at a fixed time of day (`"30 1 * * *"`) runs once, at the first of the two 1:30s. A job that fires every hour or more often (`"30 * * * *"`) runs in both passes, because they are different real hours.
+
 ## Guarantees, and what this queue does not guarantee
 
 - **At-least-once delivery, not exactly-once.** A worker can finish the work and crash before calling `complete`. The lease then lapses and the job runs again. Make handlers idempotent, for example by passing `job.idempotencyKey` or `job.id` to downstream APIs that support it.

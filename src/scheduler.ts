@@ -38,6 +38,57 @@ export interface SchedulerOptions {
 
 interface Registered extends RecurringJob {
   timezone: string;
+  /** Fires at specific times of day rather than repeatedly through every hour. See isFixedTime. */
+  fixedTime: boolean;
+}
+
+/** Longer than any daylight-saving shift in the tz database (the largest is 2 h). */
+const MAX_DST_SHIFT_MS = 3 * 3_600_000;
+
+const wallClockFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** The zone's UTC offset at instant `t`, in ms (e.g. -4 h for New York in summer). */
+function utcOffsetMs(t: number, timeZone: string): number {
+  let format = wallClockFormats.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric", month: "numeric", day: "numeric",
+      hour: "numeric", minute: "numeric", second: "numeric",
+    });
+    wallClockFormats.set(timeZone, format);
+  }
+  const part: Record<string, number> = {};
+  for (const { type, value } of format.formatToParts(t)) part[type] = Number(value);
+  const wallAsUtc = Date.UTC(part.year!, part.month! - 1, part.day, part.hour, part.minute, part.second);
+  return wallAsUtc - (t - (((t % 1000) + 1000) % 1000)); // compare whole seconds
+}
+
+/**
+ * True when the local wall-clock time at `t` already happened earlier: `t` is
+ * in the second pass through the hour that repeats when clocks fall back
+ * (1:30 EST, after 1:30 EDT, in New York).
+ */
+function isRepeatedWallTime(t: number, timeZone: string): boolean {
+  const before = utcOffsetMs(t - MAX_DST_SHIFT_MS, timeZone);
+  const shift = before - utcOffsetMs(t, timeZone);
+  // Clocks went back by `shift` within the window, and the instant that much
+  // earlier was still on the old offset, so it showed the same wall time.
+  return shift > 0 && utcOffsetMs(t - shift, timeZone) === before;
+}
+
+/**
+ * A schedule that fires at specific times of day: one second and minute value,
+ * and not every hour ("30 1 * * *", "0 9,17 * * 1-5"). On the day clocks fall
+ * back it runs once, at the first of the two repeated local times, as classic
+ * cron does. Anything that fires every hour or more often ("30 * * * *",
+ * "*\/15 1 * * *") follows real time instead and runs in both passes, which
+ * really are different hours.
+ */
+function isFixedTime(cron: string, timezone: string): boolean {
+  const { second, minute, hour } = CronExpressionParser.parse(cron, { tz: timezone }).fields;
+  return second.values.length === 1 && minute.values.length === 1 && hour.values.length < 24;
 }
 
 /**
@@ -95,7 +146,7 @@ export class Scheduler {
     } catch (err) {
       throw new RangeError(`invalid schedule "${name}" (${cron}, ${timezone}): ${(err as Error).message}`);
     }
-    this.schedules.set(name, { ...job, timezone });
+    this.schedules.set(name, { ...job, timezone, fixedTime: isFixedTime(cron, timezone) });
     return this;
   }
 
@@ -156,6 +207,10 @@ export class Scheduler {
     while (times.length < MAX_OCCURRENCES_PER_TICK) {
       const t = expression.next().getTime();
       if (times.length > 0 && t > until) break;
+      // Each tick parses from `now`, so a tick inside the repeated hour would
+      // otherwise see the second 1:30 as "next" and enqueue it under a new key:
+      // a daily job that runs twice (#19).
+      if (schedule.fixedTime && isRepeatedWallTime(t, schedule.timezone)) continue;
       times.push(t);
     }
     return times;
