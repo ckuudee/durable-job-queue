@@ -10,7 +10,7 @@ Most web apps need to do slow or unreliable work (send email, call a third-party
 
 ## Features
 
-- **Durable storage**: jobs persist in a database and are claimed atomically, so no two workers run the same job at once. SQLite for a single machine, PostgreSQL (`FOR UPDATE SKIP LOCKED`) for many.
+- **Durable storage**: jobs persist in a database and are claimed atomically, and every claim gets a fencing token, so only the job's current holder can record its result. SQLite for a single machine, PostgreSQL (`FOR UPDATE SKIP LOCKED`) for many.
 - **Workers** with configurable concurrency, automatic heartbeats, cancellation when a job is lost, and graceful shutdown.
 - **Crash recovery**: a worker holds a job only for a lease it renews with heartbeats. If the worker dies, the lease lapses and another worker picks the job up.
 - **Retries with exponential backoff and jitter**, and a **dead-letter queue** for jobs that keep failing.
@@ -130,7 +130,8 @@ The scheduler stores nothing of its own. Each tick enqueues upcoming occurrences
 ## Guarantees, and what this queue does not guarantee
 
 - **At-least-once delivery, not exactly-once.** A worker can finish the work and crash before calling `complete`. The lease then lapses and the job runs again. Make handlers idempotent, for example by passing `job.idempotencyKey` or `job.id` to downstream APIs that support it.
-- **One worker at a time per job.** Claiming is atomic, and a worker that lost its lease can no longer complete, fail or extend the job.
+- **One holder at a time per job.** Claiming is atomic, and each claim gets its own lease token (a fencing token). Once a job is re-claimed, the previous holder can no longer complete, fail or extend it, even if it has the same `workerId`. One `Worker` never runs the same job in two of its slots at once.
+- **But a cut-off worker can briefly overlap.** If a worker loses contact with the database, its lease lapses and another worker may start the job while the first is still running it. The first worker's `signal` aborts as soon as its next heartbeat is rejected, and its result is never recorded. Handlers with side effects should honor the signal and be idempotent.
 - **No migrations yet.** A database created by a different schema version is refused with a clear error instead of being upgraded.
 - **Idempotency keys never expire**, because completed jobs are never deleted yet.
 
