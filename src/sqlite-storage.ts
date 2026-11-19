@@ -10,6 +10,7 @@ import {
 } from "./backoff.js";
 import { assertIdempotencyKey, canonicalize } from "./idempotency.js";
 import { resolveRunAt } from "./schedule.js";
+import { assertStorableIdentifier, toStorableText } from "./text.js";
 import { DEFAULT_LEASE_MS, IdempotencyConflictError, JobStateError, notHeldError, type Storage } from "./storage.js";
 import type { Job, JobStatus, NewJob, QueueStats } from "./types.js";
 
@@ -344,11 +345,15 @@ export class SqliteStorage implements Storage {
     delayMs,
   }: NewJob): Promise<Job> {
     if (queue.trim() === "") throw new RangeError("queue must be a non-empty string");
+    assertStorableIdentifier("queue", queue);
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
       throw new RangeError("maxAttempts must be a positive integer");
     }
     assertLeaseMs(leaseMs);
-    if (idempotencyKey !== undefined) assertIdempotencyKey(idempotencyKey);
+    if (idempotencyKey !== undefined) {
+      assertIdempotencyKey(idempotencyKey);
+      assertStorableIdentifier("idempotencyKey", idempotencyKey);
+    }
     const json = JSON.stringify(payload);
     if (json === undefined) throw new TypeError("payload must be JSON-serializable");
 
@@ -369,6 +374,7 @@ export class SqliteStorage implements Storage {
   }
 
   async claim(queue: string, workerId: string): Promise<Job | null> {
+    assertStorableIdentifier("workerId", workerId);
     const row = this.claimTx.immediate(workerId, queue);
     return row ? toJob(row) : null;
   }
@@ -385,7 +391,7 @@ export class SqliteStorage implements Storage {
   }
 
   async fail(id: string, leaseToken: string, error: string): Promise<Job> {
-    return toJob(this.failTx.immediate(id, leaseToken, error));
+    return toJob(this.failTx.immediate(id, leaseToken, toStorableText(error)));
   }
 
   async listDead(queue: string, limit = 100): Promise<Job[]> {

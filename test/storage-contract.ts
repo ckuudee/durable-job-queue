@@ -374,6 +374,40 @@ export function storageContract(
         }));
     });
 
+    // PostgreSQL TEXT can't hold U+0000, and an unpaired UTF-16 surrogate has no
+    // UTF-8 encoding. Both backends must treat them the same way (#18).
+    describe("text that UTF-8 databases can't store as-is", () => {
+      it("records a failure message containing U+0000 or a lone surrogate, with U+FFFD in their place", () =>
+        withStore(async (s) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          const failed = await s.fail(id, await claimToken(s, "q", "w1"), "bad byte \u0000 then \uD800 end");
+          expect(failed).toMatchObject({ status: "pending", error: "bad byte \uFFFD then \uFFFD end" });
+          expect((await s.get(id))?.error).toBe("bad byte \uFFFD then \uFFFD end");
+        }));
+
+      it("keeps a valid surrogate pair (an emoji) in a failure message intact", () =>
+        withStore(async (s) => {
+          const { id } = await s.enqueue({ queue: "q", payload: 1 });
+          expect((await s.fail(id, await claimToken(s, "q", "w1"), "boom 💥")).error).toBe("boom 💥");
+        }));
+
+      it("round-trips payload strings with U+0000, lone surrogates and emoji", () =>
+        withStore(async (s) => {
+          const payload = { nul: "a\u0000b", high: "\uD800", low: "x\uDC00", emoji: "💥" };
+          const { id } = await s.enqueue({ queue: "q", payload });
+          expect((await s.get(id))?.payload).toEqual(payload);
+          expect((await s.claim("q", "w1"))?.payload).toEqual(payload);
+        }));
+
+      it("rejects such characters in queue names, idempotency keys and worker ids instead of altering them", () =>
+        withStore(async (s) => {
+          await expect(s.enqueue({ queue: "q\u0000", payload: 1 })).rejects.toThrow(RangeError);
+          await expect(s.enqueue({ queue: "q", payload: 1, idempotencyKey: "k\uD800" })).rejects.toThrow(RangeError);
+          await expect(s.claim("q", "w\u0000")).rejects.toThrow(RangeError);
+          expect(await s.stats()).toEqual([]); // nothing was written
+        }));
+    });
+
     describe("leases and crash recovery", () => {
       it("gives a claimed job a lease, using the job's own leaseMs when set", () =>
         withStore(async (s) => {

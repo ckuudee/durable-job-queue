@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { hostname } from "node:os";
 import { JobStateError, type Storage } from "./storage.js";
+import { assertStorableIdentifier } from "./text.js";
 import type { Job } from "./types.js";
 
 /**
@@ -142,6 +143,7 @@ export class Worker extends EventEmitter<WorkerEvents> {
     super();
     if (queue.trim() === "") throw new RangeError("queue must be a non-empty string");
     if (workerId.trim() === "") throw new RangeError("workerId must be a non-empty string");
+    assertStorableIdentifier("workerId", workerId);
     assertPositiveInteger("concurrency", concurrency);
     assertPositiveInteger("pollIntervalMs", pollIntervalMs);
     this.storage = storage;

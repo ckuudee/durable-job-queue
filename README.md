@@ -77,7 +77,7 @@ await storage.enqueue({ queue: "email", payload, runAt: new Date("2026-12-01T09:
 await storage.enqueue({ queue: "email", payload, maxAttempts: 5, leaseMs: 120_000 });
 ```
 
-Payloads can be any JSON-serializable value.
+Payloads can be any JSON-serializable value, stored exactly as `JSON.stringify` writes it on both backends. Queue names, idempotency keys and worker ids must not contain U+0000 or unpaired surrogates (a `RangeError` says so); in a failure message, those characters are recorded as U+FFFD.
 
 ### Process jobs
 
