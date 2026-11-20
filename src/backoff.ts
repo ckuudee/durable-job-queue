@@ -26,7 +26,7 @@ export function validateRetryPolicy(policy: RetryPolicy): void {
 
 /**
  * Delay (ms) before retrying after the `attempt`-th failed attempt (1-based):
- * exponential growth, capped at `maxDelayMs`. With jitter ("equal jitter") the
+ * exponential growth, capped at `maxDelayMs`, in whole milliseconds. With jitter ("equal jitter") the
  * result lands in [delay / 2, delay], so retries spread out but never fire
  * immediately.
  */
@@ -38,6 +38,12 @@ export function computeBackoff(
   if (!Number.isInteger(attempt) || attempt < 1) {
     throw new RangeError("attempt must be a positive integer");
   }
-  const delay = Math.min(policy.maxDelayMs, policy.baseDelayMs * policy.factor ** (attempt - 1));
+  // factor ** n overflows to Infinity around attempt 1025, and 0 * Infinity is
+  // NaN, which Math.min passes through (#23). A zero base is zero at any attempt.
+  const growth = policy.baseDelayMs === 0 ? 0 : policy.baseDelayMs * policy.factor ** (attempt - 1);
+  // Whole ms even without jitter: runAt is stored in an INTEGER/BIGINT column, and
+  // a fractional factor (1.5) gives fractional delays PostgreSQL rejects (#22).
+  // Floor, not round, so the result never exceeds maxDelayMs.
+  const delay = Math.floor(Math.min(policy.maxDelayMs, growth));
   return policy.jitter ? Math.floor(delay / 2 + random() * (delay / 2)) : delay;
 }

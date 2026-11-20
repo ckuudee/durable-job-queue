@@ -4,7 +4,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { IdempotencyConflictError } from "../../src/index.js";
 import { BACKENDS, FakeClock, type Opened } from "./helpers/backends.js";
-import { knownBug } from "./helpers/known-bug.js";
 
 describe.each(BACKENDS)("$name: idempotency keys", (backend) => {
   let opened: Opened | undefined;
@@ -139,7 +138,7 @@ describe.each(BACKENDS)("$name: retry backoff produces a storable runAt", (backe
     opened = undefined;
   });
 
-  knownBug(22, backend.name)("B1/S9: jitter off with a fractional factor (1.5) still lets fail() schedule a retry", async () => {
+  it("B1/S9: jitter off with a fractional factor (1.5) still lets fail() schedule a retry", async () => {
     const clock = new FakeClock();
     opened = await backend.open({ now: clock.now, retry: { baseDelayMs: 1_001, factor: 1.5, maxDelayMs: 60_000, jitter: false } });
     const s = opened.storage;
@@ -152,7 +151,7 @@ describe.each(BACKENDS)("$name: retry backoff produces a storable runAt", (backe
     expect(Number.isInteger(second.runAt)).toBe(true);
   });
 
-  knownBug(23, backend.name)("B1/S9: baseDelayMs 0 with many attempts (factor^n overflows to Infinity) still retries immediately", async () => {
+  it("B1/S9: baseDelayMs 0 with many attempts (factor^n overflows to Infinity) still retries immediately", async () => {
     const clock = new FakeClock();
     opened = await backend.open({ now: clock.now, retry: { baseDelayMs: 0, factor: 2, maxDelayMs: 0, jitter: false } });
     const s = opened.storage;

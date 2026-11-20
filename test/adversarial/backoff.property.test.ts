@@ -57,9 +57,8 @@ describe("computeBackoff properties", () => {
     );
   });
 
-  // Fails on #22 (fractional factor without jitter) and #23 (base 0 → 0 * Infinity).
-  // Once both are fixed, change it.fails back to it.
-  it.fails("B1: every valid policy gives a storable delay [known bugs #22, #23]", () => {
+  // Caught #22 (fractional factor without jitter) and #23 (base 0 → 0 * Infinity).
+  it("B1: every valid policy gives a storable delay", () => {
     fc.assert(fc.property(policy(), attempt, random, check));
   });
 });
