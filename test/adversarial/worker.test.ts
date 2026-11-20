@@ -5,7 +5,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { JobStateError, Worker, type Job, type Storage } from "../../src/index.js";
 import { BACKENDS, sleep, waitFor, type Opened } from "./helpers/backends.js";
-import { knownBug } from "./helpers/known-bug.js";
 
 type Terminal = "completed" | "failed" | "abandoned";
 
@@ -87,7 +86,7 @@ describe.each(BACKENDS)("$name: Worker", (backend) => {
     }
   });
 
-  knownBug(21, backend.name)("W6: a second concurrent stop() also waits for in-flight jobs before resolving", async () => {
+  it("W6: a second concurrent stop() also waits for in-flight jobs before resolving", async () => {
     opened = await backend.open();
     const s = opened.storage;
     await s.enqueue({ queue: "q", payload: 1 });
