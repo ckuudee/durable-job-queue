@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Scheduler, SqliteStorage, type RecurringJob, type Storage } from "../src/index.js";
 
 const DAY = 86_400_000;
@@ -212,6 +212,50 @@ describe("Scheduler", () => {
       await s.stop();
       expect(errors.length).toBeGreaterThan(1); // failed, then tried again
       expect((errors[0] as Error).message).toBe("db down");
+    });
+
+    it("never overlaps ticks across stop() and an immediate start(), and stays stopped after (#20)", async () => {
+      vi.useFakeTimers();
+      try {
+        // Each enqueue blocks until the test releases it, so we control exactly when a tick ends.
+        const releases: Array<() => void> = [];
+        let inFlight = 0;
+        let peak = 0;
+        const gated = {
+          enqueue: async () => {
+            peak = Math.max(peak, ++inFlight);
+            await new Promise<void>((resolve) => releases.push(resolve));
+            inFlight--;
+            return null;
+          },
+        } as unknown as Storage;
+        const settle = () => vi.advanceTimersByTimeAsync(0); // run pending promise callbacks
+        const s = new Scheduler(gated, { now: () => JAN_15 }).add(DAILY_9AM);
+
+        s.start(1_000);
+        await settle();
+        expect(releases).toHaveLength(1); // first tick is blocked in enqueue
+
+        void s.stop(); // e.g. a config reload: stop, then start, without awaiting
+        s.start(1_000);
+        await settle();
+        expect(releases).toHaveLength(1); // the new loop waits for the old tick
+
+        releases[0]!();
+        await settle();
+        expect(releases).toHaveLength(2); // now the new loop's first tick runs
+        releases[1]!();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(releases).toHaveLength(3); // one loop, one tick per interval
+        releases[2]!();
+
+        await s.stop();
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(releases).toHaveLength(3); // nothing ticks after stop() resolves
+        expect(peak).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

@@ -98,7 +98,7 @@ i.e. `it.fails` on the affected backends. When a fix lands, that test fails
 | #17 (fixed) | high | S1/S8: lease fenced by workerId only; one Worker can run a job twice at once | both |
 | #18 (fixed) | medium | S16/S19: U+0000 / lone surrogates rejected in payloads and error text | PostgreSQL |
 | #19 (fixed) | medium | SC6: daily job runs twice on the DST fall-back day | both |
-| #20 | medium-low | SC7: stop() + start() lets ticks overlap; a tick runs after stop() resolves | both |
+| #20 (fixed) | medium-low | SC7: stop() + start() lets ticks overlap; a tick runs after stop() resolves | both |
 | #21 | medium-low | W6: a second concurrent stop() doesn't wait for in-flight jobs | both |
 | #22 | medium-low | B1/S9: fractional no-jitter backoff, so PostgreSQL fail() throws | both (throws on PG) |
 | #23 | low | B1/S9: baseDelayMs 0 with more than 1024 attempts gives NaN runAt | both |

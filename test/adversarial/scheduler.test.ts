@@ -45,7 +45,7 @@ describe.each(BACKENDS)("$name: Scheduler", (backend) => {
     }, 30_000);
   });
 
-  knownBug(20, backend.name)("SC7: stop() followed immediately by start() never runs two ticks at once, and a later stop() really stops", async () => {
+  it("SC7: stop() followed immediately by start() never runs two ticks at once, and a later stop() really stops", async () => {
     opened = await backend.open();
     const inner = opened.storage;
     let inFlight = 0;
