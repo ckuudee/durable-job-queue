@@ -20,6 +20,11 @@ describe("computeBackoff", () => {
     expect(computeBackoff(3, jittery, () => 0.5)).toBe(3_000);
   });
 
+  it("rounds down to whole milliseconds without jitter, since runAt is stored as an integer (#22)", () => {
+    const fractional: RetryPolicy = { baseDelayMs: 1_001, factor: 1.5, maxDelayMs: 60_000, jitter: false };
+    expect([1, 2, 3].map((n) => computeBackoff(n, fractional))).toEqual([1_001, 1_501, 2_252]); // 1501.5, 2252.25
+  });
+
   it("stays 0 with a zero base even after factor ** n overflows to Infinity (#23)", () => {
     const zero: RetryPolicy = { baseDelayMs: 0, factor: 2, maxDelayMs: 0, jitter: false };
     expect(computeBackoff(1_025, zero)).toBe(0); // 2 ** 1024 === Infinity
