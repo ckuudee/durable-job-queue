@@ -152,7 +152,7 @@ describe.each(BACKENDS)("$name: retry backoff produces a storable runAt", (backe
     expect(Number.isInteger(second.runAt)).toBe(true);
   });
 
-  knownBug(23, backend.name)("B1/S9: baseDelayMs 0 with many attempts (factor^n overflows to Infinity) still retries immediately", async () => {
+  it("B1/S9: baseDelayMs 0 with many attempts (factor^n overflows to Infinity) still retries immediately", async () => {
     const clock = new FakeClock();
     opened = await backend.open({ now: clock.now, retry: { baseDelayMs: 0, factor: 2, maxDelayMs: 0, jitter: false } });
     const s = opened.storage;

@@ -38,6 +38,9 @@ export function computeBackoff(
   if (!Number.isInteger(attempt) || attempt < 1) {
     throw new RangeError("attempt must be a positive integer");
   }
-  const delay = Math.min(policy.maxDelayMs, policy.baseDelayMs * policy.factor ** (attempt - 1));
+  // factor ** n overflows to Infinity around attempt 1025, and 0 * Infinity is
+  // NaN, which Math.min passes through (#23). A zero base is zero at any attempt.
+  const growth = policy.baseDelayMs === 0 ? 0 : policy.baseDelayMs * policy.factor ** (attempt - 1);
+  const delay = Math.min(policy.maxDelayMs, growth);
   return policy.jitter ? Math.floor(delay / 2 + random() * (delay / 2)) : delay;
 }
