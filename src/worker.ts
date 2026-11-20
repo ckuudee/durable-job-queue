@@ -98,6 +98,13 @@ interface Lease {
   controller: AbortController;
 }
 
+/** A promise plus its resolve function (Promise.withResolvers is ES2024; we target ES2023). */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isSafeInteger(value) || value < 1) throw new RangeError(`${name} must be a positive integer`);
 }
@@ -126,6 +133,15 @@ export class Worker extends EventEmitter<WorkerEvents> {
   private generation = 0;
   private running = false;
   private loops: Promise<void>[] = [];
+  /**
+   * Loops a stop() has told to exit that haven't yet. Every stop() call waits on
+   * all of them, not just the first call (#21): a second, concurrent stop()
+   * (SIGTERM and SIGINT handlers both shutting down) must not resolve while a
+   * job is still running, or its caller closes storage under that job.
+   */
+  private readonly draining = new Set<Promise<void>>();
+  /** Resolved when a stop() times out and gives up on the draining loops' jobs. */
+  private gaveUp = deferred();
   private readonly inFlight = new Set<AbortController>();
   /** Jobs this Worker's slots are running, by job id. See loop() for why. */
   private readonly held = new Map<string, Lease>();
@@ -165,19 +181,32 @@ export class Worker extends EventEmitter<WorkerEvents> {
 
   /**
    * Stop claiming new jobs and wait for the ones in progress to finish. Safe
-   * to call when not running.
+   * to call when not running, and from several places at once: every call
+   * waits until the jobs finish or some call's timeout gives up on them.
    */
   async stop({ timeoutMs }: StopOptions = {}): Promise<void> {
     if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0)) {
       throw new RangeError("timeoutMs must be a non-negative integer");
     }
-    if (!this.running) return;
-    this.running = false;
-    this.generation++;
-    for (const wake of this.sleepers) wake(); // idle loops exit now, not after their poll delay
+    if (this.running) {
+      this.running = false;
+      this.generation++;
+      for (const wake of this.sleepers) wake(); // idle loops exit now, not after their poll delay
+      for (const loop of this.loops) {
+        this.draining.add(loop);
+        const done = (): void => void this.draining.delete(loop);
+        loop.then(done, done);
+      }
+      this.loops = [];
+    }
+    // Already stopped, but an earlier stop() may still be waiting: wait with it.
+    // That includes loops from before a stop(); start(); stop() sequence.
+    if (this.draining.size === 0) return;
 
-    const finished = Promise.all(this.loops);
-    this.loops = [];
+    // Done when the loops exit, or when any stop() call's timeout gives up on
+    // their jobs; a handler that ignores its signal may never let its loop exit.
+    const gaveUp = this.gaveUp;
+    const finished = Promise.race([Promise.all(this.draining), gaveUp.promise]);
     if (timeoutMs === undefined) {
       await finished;
       return;
@@ -194,6 +223,10 @@ export class Worker extends EventEmitter<WorkerEvents> {
       for (const controller of this.inFlight) {
         controller.abort(new Error("worker stopped before the job finished"));
       }
+      // Release every other stop() still waiting, and stop waiting on these loops.
+      this.draining.clear();
+      if (this.gaveUp === gaveUp) this.gaveUp = deferred();
+      gaveUp.resolve();
     }
   }
 

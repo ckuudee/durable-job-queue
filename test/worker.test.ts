@@ -211,6 +211,43 @@ describe("Worker", () => {
     expect((await storage.get(job.id))?.status).toBe("running"); // left for its lease to lapse
   });
 
+  it("waits in every stop() call, including one after a quick restart, until in-flight jobs finish (#21)", async () => {
+    const { storage, worker } = setup();
+    const job = await storage.enqueue({ queue: "q", payload: 1 });
+    const holding = gate();
+    const w = worker({ handler: () => holding.opened });
+
+    w.start();
+    await waitFor(async () => (await storage.get(job.id))?.status === "running");
+    const first = w.stop();
+    w.start(); // a quick restart: the first generation's job is still running
+    const second = w.stop();
+    const third = w.stop(); // already stopped, but must still wait
+    const done: string[] = [];
+    for (const [name, p] of [["first", first], ["second", second], ["third", third]] as const) {
+      void p.then(() => done.push(name));
+    }
+    await sleep(30);
+    expect(done).toEqual([]);
+
+    holding.release();
+    await Promise.all([first, second, third]);
+    expect((await storage.get(job.id))?.status).toBe("completed");
+  });
+
+  it("releases an untimed stop() when a concurrent stop() times out, even if the handler ignores its signal", async () => {
+    const { storage, worker } = setup();
+    const job = await storage.enqueue({ queue: "q", payload: 1 });
+    const w = worker({ handler: () => new Promise<void>(() => {}) }); // never resolves, ignores abort
+
+    w.start();
+    await waitFor(async () => (await storage.get(job.id))?.status === "running");
+    const untimed = w.stop();
+    await w.stop({ timeoutMs: 20 });
+    await untimed; // would hang forever if it waited only for the loop to exit
+    await w.stop(); // and later calls don't wait on the abandoned job either
+  });
+
   it("survives a claim that throws, reporting it and trying again", async () => {
     const { storage, errors } = setup();
     let failures = 2;
