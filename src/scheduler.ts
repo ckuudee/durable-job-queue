@@ -116,8 +116,14 @@ export class Scheduler {
   private readonly schedules = new Map<string, Registered>();
 
   private timer: NodeJS.Timeout | undefined;
-  private running: Promise<void> | undefined;
+  /**
+   * The last background tick, from this start() or an earlier one. Each new
+   * tick chains onto it, so ticks never overlap even across stop()/start().
+   */
+  private running: Promise<void> = Promise.resolve();
   private stopped = true;
+  /** Bumped by every start() and stop(); a loop keeps going only while its generation is current. */
+  private generation = 0;
 
   constructor(
     storage: Storage,
@@ -178,14 +184,22 @@ export class Scheduler {
     }
     if (!this.stopped) return;
     this.stopped = false;
+    const generation = ++this.generation;
 
+    // A loop from an earlier start() can still be mid-tick (stop() then start()
+    // without awaiting). Checking the generation, not a shared flag, keeps that
+    // old loop from rescheduling itself and running alongside this one (#20).
     const loop = (): void => {
-      this.running = this.tick()
-        .then(() => undefined, this.onError)
-        .finally(() => {
-          this.running = undefined;
-          if (!this.stopped) this.timer = setTimeout(loop, intervalMs);
-        });
+      this.timer = undefined;
+      this.running = this.running.then(async () => {
+        if (generation !== this.generation) return;
+        try {
+          await this.tick();
+        } catch (err) {
+          this.reportError(err);
+        }
+        if (generation === this.generation) this.timer = setTimeout(loop, intervalMs);
+      });
     };
     loop();
   }
@@ -193,8 +207,26 @@ export class Scheduler {
   /** Stop ticking. Resolves once any in-flight tick has finished. */
   async stop(): Promise<void> {
     this.stopped = true;
+    this.generation++;
     clearTimeout(this.timer);
+    this.timer = undefined;
     await this.running;
+  }
+
+  /**
+   * Hands a tick failure to onError without letting `running` reject: a
+   * rejected link would stop every later tick from chaining onto it. If onError
+   * itself throws, that is a bug in the caller's handler, so let it surface as
+   * an uncaught exception instead of hiding it.
+   */
+  private reportError(err: unknown): void {
+    try {
+      this.onError(err);
+    } catch (handlerErr) {
+      queueMicrotask(() => {
+        throw handlerErr;
+      });
+    }
   }
 
   private occurrences(schedule: Registered, now: number): number[] {
