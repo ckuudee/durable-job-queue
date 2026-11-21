@@ -89,3 +89,37 @@ describe("SqliteStorage schema version", () => {
     expect(() => new SqliteStorage({ path })).toThrow(/schema version 0, expected \d+.*delete the file/);
   });
 });
+
+// #43: the build defaults a connection to an existing WAL file to synchronous =
+// NORMAL, where a power loss can undo a commit that already returned (an
+// enqueue the caller was told succeeded). Every connection must flush each
+// commit, not only the one that happened to create the file.
+describe("SqliteStorage durability", () => {
+  const tempDirs: string[] = [];
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The pragma is per connection, so it can only be read on the store's own
+  // connection. Reaching into a private field is the price of testing it.
+  const synchronous = (store: SqliteStorage) =>
+    (store as unknown as { db: Database.Database }).db.pragma("synchronous", { simple: true });
+  const FULL = 2;
+
+  it("commits at synchronous = FULL on every connection, including to an existing file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jobq-durability-"));
+    tempDirs.push(dir);
+    const path = join(dir, "queue.sqlite");
+
+    const creator = new SqliteStorage({ path });
+    const otherProcess = new SqliteStorage({ path }); // the file is already in WAL mode now
+    expect(synchronous(creator)).toBe(FULL);
+    expect(synchronous(otherProcess)).toBe(FULL);
+    await otherProcess.close();
+    await creator.close();
+
+    const afterRestart = new SqliteStorage({ path });
+    expect(synchronous(afterRestart)).toBe(FULL);
+    await afterRestart.close();
+  });
+});
