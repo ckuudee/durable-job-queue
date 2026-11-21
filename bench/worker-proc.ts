@@ -19,14 +19,24 @@ const stop = fromParent("stop");
 // One pooled connection per slot plus one spare for heartbeats, so the pool is
 // never what the slots wait on.
 const storage = await openStorage(target, concurrency + 1);
+// PostgreSQL pools connect lazily. Open them all now, before "ready", so
+// connection setup isn't counted in the timed run (larger layouts would pay
+// more for it). Concurrent calls make the pool open one connection each.
+await Promise.all(Array.from({ length: concurrency + 1 }, () => storage.get("warm-up")));
+
 let abandoned = 0;
 const errors: string[] = [];
+// Every job the handler actually ran. The database can only say a job was
+// claimed once; this is what shows the handler itself ran exactly once.
+const handled: string[] = [];
 const worker = new Worker(storage, {
   queue: QUEUE,
   workerId,
   concurrency,
   pollIntervalMs: Number(pollArg),
-  handler: async () => {},
+  handler: async (job) => {
+    handled.push(job.id);
+  },
   onError: (err) => errors.push(String(err)),
 });
 worker.on("job:abandoned", () => abandoned++);
@@ -37,4 +47,4 @@ worker.start();
 await stop;
 await worker.stop();
 await storage.close();
-await finish({ type: "done", abandoned, errors: errors.slice(0, 5), errorCount: errors.length });
+await finish({ type: "done", abandoned, errors: errors.slice(0, 5), errorCount: errors.length, handled });
