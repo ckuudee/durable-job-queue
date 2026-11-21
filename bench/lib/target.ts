@@ -257,6 +257,52 @@ async function withPg<T>(target: Extract<Target, { backend: "postgres" }>, fn: (
   }
 }
 
+/**
+ * The settings that decide what a number means, recorded with the results:
+ * durability (does every commit reach the disk before returning?) and, for
+ * PostgreSQL, the connection limit that rules out the largest layouts.
+ */
+export async function databaseSettings(backend: Backend): Promise<Record<string, string>> {
+  if (backend === "sqlite") {
+    // Pragmas are per connection, so read them on a store's own connection: the
+    // store sets them in its constructor. Opened on an existing file, which is
+    // the case every worker process is in.
+    const target = await createTarget("sqlite");
+    try {
+      const store = (await openStorage(target)) as unknown as { db: Database.Database; close(): Promise<void> };
+      const get = (name: string) => String(store.db.pragma(name, { simple: true }));
+      const settings = {
+        journal_mode: get("journal_mode"),
+        synchronous: get("synchronous"),
+        fullfsync: get("fullfsync"),
+        busy_timeout: get("busy_timeout"),
+      };
+      await store.close();
+      return settings;
+    } finally {
+      await destroyTarget(target);
+    }
+  }
+  const client = new pg.Client({ connectionString: pgUrl() });
+  await client.connect();
+  try {
+    const names = [
+      "synchronous_commit",
+      "fsync",
+      "wal_sync_method",
+      "full_page_writes",
+      "max_connections",
+      "superuser_reserved_connections",
+      "shared_buffers",
+    ];
+    const settings: Record<string, string> = {};
+    for (const name of names) settings[name] = (await client.query(`SHOW ${name}`)).rows[0][name];
+    return settings;
+  } finally {
+    await client.end();
+  }
+}
+
 /** Versions to record alongside results. */
 export async function databaseVersions(backends: Backend[]): Promise<Record<string, string>> {
   const versions: Record<string, string> = {};

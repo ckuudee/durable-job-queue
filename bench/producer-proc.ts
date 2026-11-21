@@ -25,6 +25,8 @@ if (!targetJson || (mode !== "burst" && mode !== "rate")) {
 const target = JSON.parse(targetJson) as Target;
 const go = fromParent("go");
 const storage = await openStorage(target, 16);
+// Open the pool's connections before "ready" (see worker-proc.ts).
+await Promise.all(Array.from({ length: 16 }, () => storage.get("warm-up")));
 await toParent({ type: "ready" });
 await go;
 
