@@ -66,6 +66,8 @@ const storage = await PostgresStorage.connect({ connectionString: process.env.DA
 
 Both implement the same `Storage` interface and pass the same test suite, so the rest of this section works with either. Until the package is on npm, import from the cloned repo's `src/index.js` instead.
 
+**Durability:** once `enqueue()` (or any other write) resolves, the change is on disk. SQLite runs with `synchronous = FULL` on every connection, and PostgreSQL's default `synchronous_commit = on` does the same. A crash of your app, the OS or the power doesn't lose it. One caveat on macOS: `fsync` there doesn't force the drive's own write cache to disk, and neither backend's default asks it to.
+
 ### Enqueue jobs
 
 ```ts
