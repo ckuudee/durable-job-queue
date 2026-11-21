@@ -85,9 +85,12 @@ export interface WorkerOptions {
 
 export interface StopOptions {
   /**
-   * Stop waiting for in-flight jobs after this many ms. Their handlers' signals
-   * are aborted and their results are not recorded; their leases lapse and
-   * another worker runs them again. Without it, stop() waits as long as it takes.
+   * Stop waiting for in-flight jobs after this many ms. Handlers still running
+   * have their signals aborted and their results are not recorded; their leases
+   * lapse and another worker runs them again. A job whose handler already
+   * finished is mid-save, not running: stop() waits for that save (one storage
+   * round trip) so that, once it resolves, the worker no longer uses storage.
+   * Without a timeout, stop() waits as long as it takes.
    */
   timeoutMs?: number;
 }
@@ -143,6 +146,12 @@ export class Worker extends EventEmitter<WorkerEvents> {
   /** Resolved when a stop() times out and gives up on the draining loops' jobs. */
   private gaveUp = deferred();
   private readonly inFlight = new Set<AbortController>();
+  /**
+   * Results being saved (complete()/fail() plus the outcome event). A timed-out
+   * stop() can't abort these, since the handler is already done, so every stop()
+   * waits for them before resolving (#35). Never rejects.
+   */
+  private readonly recording = new Set<Promise<void>>();
   /** Jobs this Worker's slots are running, by job id. See loop() for why. */
   private readonly held = new Map<string, Lease>();
   private readonly sleepers = new Set<() => void>();
@@ -182,12 +191,22 @@ export class Worker extends EventEmitter<WorkerEvents> {
   /**
    * Stop claiming new jobs and wait for the ones in progress to finish. Safe
    * to call when not running, and from several places at once: every call
-   * waits until the jobs finish or some call's timeout gives up on them.
+   * waits until the jobs finish or some call's timeout gives up on them, and
+   * then for any result still being saved.
    */
   async stop({ timeoutMs }: StopOptions = {}): Promise<void> {
     if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0)) {
       throw new RangeError("timeoutMs must be a non-negative integer");
     }
+    await this.drain(timeoutMs);
+    // A timeout gives up on handlers, not on saves already under way: those are
+    // one storage round trip, and a caller closes storage right after stop()
+    // (#35). Aborted jobs never start a save, so no save is missed here.
+    await Promise.all(this.recording);
+  }
+
+  /** stop()'s first half: tell the loops to exit and wait for them, or for a timeout. */
+  private async drain(timeoutMs: number | undefined): Promise<void> {
     if (this.running) {
       this.running = false;
       this.generation++;
@@ -306,27 +325,40 @@ export class Worker extends EventEmitter<WorkerEvents> {
       clearInterval(heartbeat);
       const durationMs = performance.now() - startedAt;
 
+      // Registered in the same synchronous step as the aborted check above, so a
+      // stop() timing out can't slip in between and miss this save (#35).
+      const recording = this.record(job, lease.token, failure, durationMs);
+      this.recording.add(recording);
       try {
-        if (failure) {
-          const { error } = failure;
-          const failed = await this.storage.fail(
-            job.id, lease.token, error instanceof Error ? error.message : String(error),
-          );
-          this.emitSafely("job:failed", { job, error, durationMs, willRetry: failed.status === "pending" });
-        } else {
-          await this.storage.complete(job.id, lease.token);
-          this.emitSafely("job:completed", { job, durationMs });
-        }
-      } catch (err) {
-        // complete() or fail() threw: the job was lost (JobStateError) or the
-        // database is unreachable. Either way the lease lapses and it runs again.
-        this.onError(err);
-        this.emitSafely("job:abandoned", { job, reason: err });
+        await recording;
+      } finally {
+        this.recording.delete(recording);
       }
     } finally {
       clearInterval(heartbeat);
       this.inFlight.delete(controller);
       if (this.held.get(job.id) === lease) this.held.delete(job.id);
+    }
+  }
+
+  /** Save a finished job's result and emit its outcome. Never rejects. */
+  private async record(
+    job: Job, token: string, failure: { error: unknown } | undefined, durationMs: number,
+  ): Promise<void> {
+    try {
+      if (failure) {
+        const { error } = failure;
+        const failed = await this.storage.fail(job.id, token, error instanceof Error ? error.message : String(error));
+        this.emitSafely("job:failed", { job, error, durationMs, willRetry: failed.status === "pending" });
+      } else {
+        await this.storage.complete(job.id, token);
+        this.emitSafely("job:completed", { job, durationMs });
+      }
+    } catch (err) {
+      // complete() or fail() threw: the job was lost (JobStateError) or the
+      // database is unreachable. Either way the lease lapses and it runs again.
+      this.onError(err);
+      this.emitSafely("job:abandoned", { job, reason: err });
     }
   }
 

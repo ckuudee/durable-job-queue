@@ -422,30 +422,52 @@ describe("Worker events", () => {
     expect(errors).toContain(down); // still reported as a worker error, as before
   });
 
-  it("emits exactly one outcome when stop() times out while the result is being recorded", async () => {
-    const { storage } = setup();
-    const recording = gate();
-    const slow: Storage = Object.assign(Object.create(storage) as Storage, {
-      complete: async (id: string, leaseToken: string) => {
-        await recording.opened; // hold complete() in flight
-        return storage.complete(id, leaseToken);
-      },
+  for (const outcome of ["completed", "failed"] as const) {
+    it(`waits for a result already being saved (${outcome}) when stop() times out, in every stop() call (#35)`, async () => {
+      const { storage } = setup();
+      const saving = gate();
+      let saveStarted = false;
+      const hold = <A extends unknown[], R>(save: (...args: A) => Promise<R>) =>
+        async (...args: A): Promise<R> => {
+          saveStarted = true;
+          await saving.opened; // hold the save in flight
+          return save(...args);
+        };
+      const slow: Storage = Object.assign(Object.create(storage) as Storage, {
+        complete: hold(storage.complete.bind(storage)),
+        fail: hold(storage.fail.bind(storage)),
+      });
+      const job = await storage.enqueue({ queue: "q", payload: 1 });
+      const w = new Worker(slow, {
+        queue: "q",
+        pollIntervalMs: 5,
+        onError: () => {},
+        handler: async () => {
+          if (outcome === "failed") throw new Error("boom");
+        },
+      });
+      const events = record(w);
+
+      w.start();
+      await waitFor(() => saveStarted); // the handler is done; the save waits on the gate
+      const untimed = w.stop();
+      const timed = w.stop({ timeoutMs: 10 }); // times out, but there is no handler left to give up on
+      const done: string[] = [];
+      for (const [name, p] of [["untimed", untimed], ["timed", timed]] as const) void p.then(() => done.push(name));
+      await sleep(40); // well past the timeout
+      const late = w.stop(); // a call after the timeout must wait too
+      void late.then(() => done.push("late"));
+      await sleep(10);
+      expect(done).toEqual([]); // nobody may close storage under the save
+
+      saving.release();
+      await Promise.all([untimed, timed, late]);
+      // The outcome is saved and announced before any stop() resolves.
+      expect(names(events)).toEqual(["job:claimed", `job:${outcome}`]);
+      const expected = outcome === "completed" ? "completed" : "pending"; // failed → retry pending
+      expect((await storage.get(job.id))?.status).toBe(expected);
     });
-    const job = await storage.enqueue({ queue: "q", payload: 1 });
-    const w = new Worker(slow, { queue: "q", pollIntervalMs: 5, onError: () => {}, handler: async () => {} });
-    cleanup.push(() => w.stop({ timeoutMs: 0 }));
-    const events = record(w);
-
-    w.start();
-    await waitFor(() => events.length === 1);
-    await sleep(10); // the handler is done; complete() is now waiting on the gate
-    await w.stop({ timeoutMs: 10 }); // times out and aborts the in-flight job...
-    recording.release(); // ...but the completion still lands
-    await waitFor(async () => (await storage.get(job.id))?.status === "completed");
-    await sleep(10);
-
-    expect(names(events)).toEqual(["job:claimed", "job:completed"]);
-  });
+  }
 
   it("isolates a throwing listener: later listeners still run and the job still completes", async () => {
     const { storage, worker, errors } = setup();
