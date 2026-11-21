@@ -61,6 +61,7 @@ export async function openStorage(target: Target, maxConnections = 10): Promise<
 
 /** One job row, reduced to what the measurements need. Timestamps are epoch ms. */
 export interface Row {
+  id: string;
   status: string;
   attempts: number;
   createdAt: number;
@@ -70,9 +71,10 @@ export interface Row {
   payload: unknown;
 }
 
-const ROW_COLUMNS = "status, attempts, created_at, run_at, claimed_at, finished_at, payload";
+const ROW_COLUMNS = "id, status, attempts, created_at, run_at, claimed_at, finished_at, payload";
 
 interface RawRow {
+  id: string;
   status: string;
   attempts: number;
   created_at: number | string;
@@ -88,6 +90,7 @@ const numOrNull = (v: number | string | null): number | null => (v === null ? nu
 
 function toRow(r: RawRow): Row {
   return {
+    id: r.id,
     status: r.status,
     attempts: r.attempts,
     createdAt: num(r.created_at),
@@ -110,6 +113,54 @@ export async function readRows(target: Target): Promise<Row[]> {
     const { rows } = await c.query<RawRow>(`SELECT ${ROW_COLUMNS} FROM ${target.schema}.jobs WHERE ${where}`);
     return rows.map(toRow);
   });
+}
+
+/**
+ * How many of the queue's jobs are still pending or running, for watching a run
+ * progress. Deliberately not Storage.stats(): that counts every row in the
+ * queue (about 300 ms per call on SQLite with a million completed rows), and a
+ * SqliteStorage opens a write transaction on startup, so the harness would
+ * compete with the workers it is measuring. This uses one read-only connection
+ * and a count the claim index answers without touching completed rows.
+ */
+export class ProgressReader {
+  private constructor(
+    private readonly countFn: () => Promise<number>,
+    private readonly closeFn: () => Promise<void>,
+  ) {}
+
+  static async open(target: Target): Promise<ProgressReader> {
+    const sql = (jobs: string) =>
+      `SELECT COUNT(*) AS n FROM ${jobs} WHERE queue = '${QUEUE}' AND status IN ('pending', 'running')`;
+    if (target.backend === "sqlite") {
+      const db = new Database(target.path, { readonly: true });
+      const stmt = db.prepare(sql("jobs"));
+      return new ProgressReader(
+        async () => (stmt.get() as { n: number }).n,
+        async () => void db.close(),
+      );
+    }
+    const client = new pg.Client({ connectionString: target.url });
+    await client.connect();
+    return new ProgressReader(
+      async () => Number((await client.query<{ n: string }>(sql(`${target.schema}.jobs`))).rows[0]!.n),
+      () => client.end(),
+    );
+  }
+
+  unfinished(): Promise<number> {
+    return this.countFn();
+  }
+
+  close(): Promise<void> {
+    return this.closeFn();
+  }
+}
+
+/** Refresh the planner's statistics, as autovacuum would in a real deployment. */
+export async function analyze(target: Target): Promise<void> {
+  if (target.backend === "sqlite") withSqlite(target, (db) => db.exec("ANALYZE"));
+  else await withPg(target, (c) => c.query(`ANALYZE ${target.schema}.jobs`));
 }
 
 /**
