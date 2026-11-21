@@ -1,6 +1,6 @@
 # Design: metrics and dashboard
 
-Status: **accepted, not yet implemented.**
+Status: **implemented** (PRs #1-#15; see the README's monitoring section).
 
 ## Goal
 

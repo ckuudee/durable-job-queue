@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "example": "tsx examples/quickstart.ts",
-    "dashboard": "tsx examples/dashboard.ts"
+    "dashboard": "tsx examples/dashboard.ts",
+    "bench": "tsx bench/run.ts"
   },
   "keywords": [
     "job-queue",
