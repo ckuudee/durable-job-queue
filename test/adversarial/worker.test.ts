@@ -189,6 +189,11 @@ describe.each(BACKENDS)("$name: Worker", (backend) => {
       w.start();
       await waitFor(() => ev.log.length > 0, 5_000, "claim");
       await w.stop({ timeoutMs: 15 + (round % 10) });
+      // A handler that finished just before the deadline may still be recording
+      // its result after stop() resolves (#35), and a loaded PostgreSQL can take
+      // longer than any fixed sleep (#30). Wait for the outcome, then a little
+      // longer so a duplicate event would still be caught.
+      await waitFor(() => ev.log.length >= 2, 5_000, `round ${round} outcome`);
       await sleep(40);
       expect(ev.violations(), `round ${round}`).toEqual([]);
       const status = (await s.get(id))?.status;
