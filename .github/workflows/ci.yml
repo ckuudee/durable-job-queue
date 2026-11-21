@@ -34,3 +34,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      # The load-test runner at a tiny size: checks that it still works and that
+      # no job is lost or run twice. Shared runners are too noisy for real numbers.
+      - run: npm run bench -- --backend all --smoke
