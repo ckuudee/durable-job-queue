@@ -4,6 +4,10 @@ A durable background job queue for Node.js: jobs survive crashes, failed jobs re
 
 > **Status:** working library with SQLite and PostgreSQL backends; every guarantee is tested in CI, PostgreSQL against a real server. Not yet published to npm. Load tests are next.
 
+![The read-only dashboard: per-queue counts, throughput sparklines, and the dead-letter queue with each job's last error](docs/images/dashboard.png)
+
+*The built-in dashboard during `npm run dashboard`: three queues under load, retries, and dead jobs. See [Monitor the queue](#monitor-the-queue).*
+
 ## Why
 
 Most web apps need to do slow or unreliable work (send email, call a third-party API, process a file) outside the request. Doing that safely is harder than it looks: workers crash mid-job, two workers can grab the same job, and retries can run an action twice. This project is a from-scratch implementation that treats those failure cases as the main requirement.
