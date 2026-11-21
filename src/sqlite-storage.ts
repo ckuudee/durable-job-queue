@@ -199,6 +199,12 @@ export class SqliteStorage implements Storage {
     // WAL lets readers and one writer coexist; busy_timeout makes competing
     // processes wait for the write lock instead of failing immediately.
     this.db.pragma("journal_mode = WAL");
+    // FULL flushes every commit before it returns, so a job that enqueue()
+    // reported as saved survives a power loss or OS crash. Set explicitly: the
+    // build defaults a connection to an existing WAL file to NORMAL (#43), which
+    // can undo recent commits on power loss, while the connection that created
+    // the file got FULL.
+    this.db.pragma("synchronous = FULL");
     this.db.pragma("busy_timeout = 5000");
     try {
       this.initSchema(path);
