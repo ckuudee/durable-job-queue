@@ -59,7 +59,7 @@ Sources: `R` = README.md, `M` = docs/design/metrics.md, `S` = src/storage.ts,
 | W4 | A throwing (sync or async) listener goes to `onError` and doesn't break the job. | W:269-275, M:123 |
 | W5 | At most `concurrency` handlers run at once. | W:70 |
 | W6 | `start()` again while running does nothing; `stop()` safe when not running; stop waits for in-flight jobs. | W:148, W:156-159 |
-| W7 | `stop({timeoutMs})` aborts signals and records no result; the job runs again elsewhere. | W:85-91 |
+| W7 | `stop({timeoutMs})` aborts signals and records no result; the job runs again elsewhere. A result already being saved when the timeout fires is saved, and stop() resolves only after it. | W:85-91 |
 | W8 | Handler errors are not reported to `onError`; they fail the job. | W:79 |
 | W9 | Heartbeats keep a handler that runs longer than `leaseMs` from losing its job. | R:100, W:99 |
 
@@ -102,6 +102,7 @@ i.e. `it.fails` on the affected backends. When a fix lands, that test fails
 | #21 (fixed) | medium-low | W6: a second concurrent stop() doesn't wait for in-flight jobs | both |
 | #22 (fixed) | medium-low | B1/S9: fractional no-jitter backoff, so PostgreSQL fail() throws | both (throws on PG) |
 | #23 (fixed) | low | B1/S9: baseDelayMs 0 with more than 1024 attempts gives NaN runAt | both |
+| #35 (fixed) | low | W6/W7: a timed-out stop() resolves while a finished job's result is still being saved (found later, via a CI flake) | both |
 
 Held up under attack: S1–S5 multi-process claiming (including constant lease
 lapses), runAt/leaseUntil boundaries, ST1 snapshot consistency under concurrent
