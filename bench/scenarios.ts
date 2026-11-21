@@ -9,6 +9,7 @@ import {
   destroyTarget,
   explainClaim,
   openStorage,
+  ProgressReader,
   QUEUE,
   readRows,
   seedCompleted,
@@ -81,28 +82,27 @@ async function stopWorkers(workers: Child[]): Promise<WorkerReport[]> {
 }
 
 /**
- * Wait until `count` jobs in the queue are completed (or dead). Fails if
- * nothing moves for `stallMs`, so a hung run ends with an error, not forever.
+ * Wait until no job in the queue is pending or running. Fails if the count
+ * doesn't move for `stallMs`, so a hung run ends with an error, not forever.
  */
-async function waitForFinished(target: Target, count: number, stallMs = 60_000): Promise<void> {
-  const storage = await openStorage(target, 1);
+async function waitForDrained(target: Target, stallMs = 60_000): Promise<void> {
+  const progress = await ProgressReader.open(target);
   try {
     let last = -1;
     let lastChange = Date.now();
     for (;;) {
-      const [stats] = await storage.stats(QUEUE);
-      const finished = (stats?.completed ?? 0) + (stats?.dead ?? 0);
-      if (finished >= count) return;
-      if (finished !== last) {
-        last = finished;
+      const unfinished = await progress.unfinished();
+      if (unfinished === 0) return;
+      if (unfinished !== last) {
+        last = unfinished;
         lastChange = Date.now();
       } else if (Date.now() - lastChange > stallMs) {
-        throw new Error(`no progress for ${stallMs} ms: ${finished} of ${count} jobs finished`);
+        throw new Error(`no progress for ${stallMs} ms: ${unfinished} jobs still pending or running`);
       }
-      await sleep(50);
+      await sleep(100);
     }
   } finally {
-    await storage.close();
+    await progress.close();
   }
 }
 
@@ -153,7 +153,7 @@ export function drain(backend: Backend, layout: Layout, jobs: number, seeded = 0
 
     const workers = await startWorkers(target, layout, 1000);
     children.push(...workers);
-    await waitForFinished(target, seeded + jobs);
+    await waitForDrained(target);
     const reports = await stopWorkers(workers);
 
     const rows = await readRows(target);
@@ -223,7 +223,7 @@ export function latency(
     );
     children.push(producer!);
     const { sent, maxLagMs } = (await producer!.next("done")) as unknown as { sent: number; maxLagMs: number };
-    await waitForFinished(target, sent);
+    await waitForDrained(target);
     const reports = await stopWorkers(workers);
 
     const rows = await readRows(target);
