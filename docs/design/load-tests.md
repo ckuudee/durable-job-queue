@@ -63,7 +63,7 @@ After each run, read the table and fail the run, rather than report a number, if
 
 ## Method
 
-- **Machine:** an Apple M2 MacBook (8 cores, 8 GB), plugged in, other apps closed. Node 26, native arm64. PostgreSQL 17 from Postgres.app (native arm64, not a Rosetta build). The results file records the machine, OS, Node, SQLite and PostgreSQL versions and the git commit.
+- **Machine:** an Apple M2 MacBook (8 cores, 8 GB), plugged in, other apps closed. Node 26, native arm64. PostgreSQL 19 from Postgres.app (native arm64, not a Rosetta build). CI tests against PostgreSQL 17, so before measuring, the full Postgres test suite is run against the 19 server too. The results file records the machine, OS, Node, SQLite and PostgreSQL versions and the git commit.
 - **Same machine:** the database, the producers and the workers share the same 8 cores. That makes the numbers conservative for PostgreSQL, which would normally run on its own host, and the write-up says so.
 - **Default, durable settings:** PostgreSQL runs with its default configuration. SQLite uses the store's own settings (WAL mode, default `synchronous`). A queue that promises durability shouldn't be benchmarked with durability turned off. Each process's PostgreSQL pool is sized to its concurrency, so the pool isn't the bottleneck.
 - **Repeats:** a fresh database for every run, one warm-up run discarded, then 3 runs. Report the median and the min–max range, not the best run.
