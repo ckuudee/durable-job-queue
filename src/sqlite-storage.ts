@@ -236,6 +236,14 @@ export class SqliteStorage implements Storage {
     // pending and due, or running with a lapsed lease (its worker is presumed
     // dead). In an UPDATE, SQLite evaluates every SET expression against the old
     // row, so the CASE below still sees the previous status.
+    //
+    // The two kinds are looked up separately and the earlier one wins. A single
+    // WHERE (pending AND ...) OR (running AND ...) stops SQLite from reading
+    // an index in order, so it read and sorted every job in the queue on each
+    // claim, and claiming slowed down as the backlog grew (#46). Now the pending
+    // half walks idx_jobs_claim in (run_at, seq) order and stops at its first
+    // row, and the lapsed half reads only running jobs, of which there are about
+    // as many as worker slots. The outer ORDER BY sorts at most two rows.
     this.claimNext = this.db.prepare(`
       UPDATE jobs
          SET error = CASE WHEN status = 'running'
@@ -244,11 +252,19 @@ export class SqliteStorage implements Storage {
              status = 'running', worker_id = ?, lease_token = ?, claimed_at = ?,
              attempts = attempts + 1, lease_until = ? + lease_ms
        WHERE id = (
-         SELECT id FROM jobs
-          WHERE queue = ?
-            AND ((status = 'pending' AND run_at <= ?) OR (status = 'running' AND lease_until <= ?))
-          ORDER BY run_at, seq
-          LIMIT 1
+         SELECT id FROM (
+           SELECT * FROM (
+             SELECT id, run_at, seq FROM jobs
+              WHERE queue = ? AND status = 'pending' AND run_at <= ?
+              ORDER BY run_at, seq LIMIT 1)
+           UNION ALL
+           SELECT * FROM (
+             SELECT id, run_at, seq FROM jobs
+              WHERE queue = ? AND status = 'running' AND lease_until <= ?
+              ORDER BY run_at, seq LIMIT 1)
+         )
+         ORDER BY run_at, seq
+         LIMIT 1
        )
       RETURNING *`);
     this.extendLease = this.db.prepare(
@@ -299,7 +315,7 @@ export class SqliteStorage implements Storage {
     this.claimTx = this.db.transaction((workerId: string, queue: string): JobRow | undefined => {
       const now = this.now();
       this.expireExhausted.run(now, queue, now);
-      return this.claimNext.get(workerId, randomUUID(), now, now, queue, now, now) as JobRow | undefined;
+      return this.claimNext.get(workerId, randomUUID(), now, now, queue, now, queue, now) as JobRow | undefined;
     });
 
     // Read the attempt count, then decide retry vs dead, then write.
