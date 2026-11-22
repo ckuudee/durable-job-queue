@@ -479,6 +479,22 @@ export function storageContract(
           expect(reclaimed?.error).toMatch(/lease expired \(worker w1\)/);
         }));
 
+      // Claim looks for two kinds of ready job (pending and due; running with a
+      // lapsed lease) and must order them together by runAt, not one kind first.
+      it("orders lapsed jobs and pending jobs together by their scheduled time", () =>
+        withStore(async (s, clock) => {
+          const lapsed = await s.enqueue({ queue: "q", payload: "lapsed" }); // runAt START
+          await s.claim("q", "w1");
+          const early = await s.enqueue({ queue: "q", payload: "early", runAt: START - 5_000 });
+          const late = await s.enqueue({ queue: "q", payload: "late", runAt: START + 5_000 });
+
+          clock.t = START + LEASE; // the first claim's lease lapses; "late" is due
+          const order = [];
+          for (let i = 0; i < 3; i++) order.push((await s.claim("q", "w2"))?.id);
+          expect(order).toEqual([early.id, lapsed.id, late.id]);
+          expect(await s.claim("q", "w2")).toBeNull();
+        }));
+
       it("keeps a job away from others for as long as its worker heartbeats", () =>
         withStore(async (s, clock) => {
           const { id } = await s.enqueue({ queue: "q", payload: 1 });

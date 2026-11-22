@@ -359,22 +359,42 @@ export class PostgresStorage implements Storage {
     //
     // The attempts < max_attempts guard covers an exhausted job the statement
     // above skipped because it was locked: it must never be claimed again.
+    //
+    // Pending and lapsed jobs are looked up separately and the earlier one wins.
+    // A single WHERE (pending AND ...) OR (running AND ...) made PostgreSQL
+    // BitmapOr both ranges and sort every ready job on each claim, so claiming
+    // slowed down as the backlog grew (#46). Now the pending half reads
+    // jobs_claim_idx in (run_at, seq) order and stops at the first row it can
+    // lock, and the lapsed half reads only running jobs (about one per worker
+    // slot). FOR UPDATE isn't allowed on a UNION's inputs, so each half is a CTE.
+    // Both halves may lock a row; the one not chosen is released when this
+    // statement commits, and another claimer meanwhile just skips it.
     const { rows } = await this.pool.query<PgRow>(
-      `UPDATE ${this.jobs}
+      `WITH pending AS (
+          SELECT id, run_at, seq FROM ${this.jobs}
+           WHERE queue = $3 AND status = 'pending' AND run_at <= $2::bigint
+           ORDER BY run_at, seq
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED
+        ), lapsed AS (
+          SELECT id, run_at, seq FROM ${this.jobs}
+           WHERE queue = $3 AND status = 'running' AND lease_until <= $2::bigint
+             AND attempts < max_attempts
+           ORDER BY run_at, seq
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED
+        ), next AS (
+          SELECT id FROM (SELECT * FROM pending UNION ALL SELECT * FROM lapsed) ready
+           ORDER BY run_at, seq
+           LIMIT 1
+        )
+       UPDATE ${this.jobs}
           SET error = CASE WHEN status = 'running'
                            THEN 'lease expired (worker ' || worker_id || ')'
                            ELSE error END,
               status = 'running', worker_id = $1, lease_token = $4, claimed_at = $2::bigint,
               attempts = attempts + 1, lease_until = $2::bigint + lease_ms
-        WHERE id = (
-          SELECT id FROM ${this.jobs}
-           WHERE queue = $3
-             AND ((status = 'pending' AND run_at <= $2::bigint)
-               OR (status = 'running' AND lease_until <= $2::bigint AND attempts < max_attempts))
-           ORDER BY run_at, seq
-           LIMIT 1
-           FOR UPDATE SKIP LOCKED
-        )
+        WHERE id = (SELECT id FROM next)
        RETURNING *`,
       [workerId, now, queue, randomUUID()],
     );
