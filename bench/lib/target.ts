@@ -210,13 +210,21 @@ export async function explainClaim(target: Target): Promise<string> {
         db
           .prepare(
             `EXPLAIN QUERY PLAN
-             SELECT id FROM jobs
-              WHERE queue = ?
-                AND ((status = 'pending' AND run_at <= ?) OR (status = 'running' AND lease_until <= ?))
-              ORDER BY run_at, seq
-              LIMIT 1`,
+             SELECT id FROM (
+               SELECT * FROM (
+                 SELECT id, run_at, seq FROM jobs
+                  WHERE queue = ? AND status = 'pending' AND run_at <= ?
+                  ORDER BY run_at, seq LIMIT 1)
+               UNION ALL
+               SELECT * FROM (
+                 SELECT id, run_at, seq FROM jobs
+                  WHERE queue = ? AND status = 'running' AND lease_until <= ?
+                  ORDER BY run_at, seq LIMIT 1)
+             )
+             ORDER BY run_at, seq
+             LIMIT 1`,
           )
-          .all(QUEUE, now, now) as { detail: string }[]
+          .all(QUEUE, now, QUEUE, now) as { detail: string }[]
       )
         .map((r) => r.detail)
         .join("\n"),
@@ -225,13 +233,21 @@ export async function explainClaim(target: Target): Promise<string> {
   return withPg(target, async (c) => {
     const { rows } = await c.query<{ "QUERY PLAN": string }>(
       `EXPLAIN
-       SELECT id FROM ${target.schema}.jobs
-        WHERE queue = $1
-          AND ((status = 'pending' AND run_at <= $2::bigint)
-            OR (status = 'running' AND lease_until <= $2::bigint AND attempts < max_attempts))
+       WITH pending AS (
+          SELECT id, run_at, seq FROM ${target.schema}.jobs
+           WHERE queue = $1 AND status = 'pending' AND run_at <= $2::bigint
+           ORDER BY run_at, seq LIMIT 1
+           FOR UPDATE SKIP LOCKED
+        ), lapsed AS (
+          SELECT id, run_at, seq FROM ${target.schema}.jobs
+           WHERE queue = $1 AND status = 'running' AND lease_until <= $2::bigint
+             AND attempts < max_attempts
+           ORDER BY run_at, seq LIMIT 1
+           FOR UPDATE SKIP LOCKED
+        )
+       SELECT id FROM (SELECT * FROM pending UNION ALL SELECT * FROM lapsed) ready
         ORDER BY run_at, seq
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED`,
+        LIMIT 1`,
       [QUEUE, now],
     );
     return rows.map((r) => r["QUERY PLAN"]).join("\n");
