@@ -68,6 +68,8 @@ Both implement the same `Storage` interface and pass the same test suite, so the
 
 **Durability:** once `enqueue()` (or any other write) resolves, the change is on disk. SQLite runs with `synchronous = FULL` on every connection, and PostgreSQL's default `synchronous_commit = on` does the same. A crash of your app, the OS or the power doesn't lose it. One caveat on macOS: `fsync` there doesn't force the drive's own write cache to disk, and neither backend's default asks it to.
 
+**SQLite and several processes:** SQLite lets one process write at a time, so extra worker processes add no throughput; in the load tests every layout from 1 process to 8 drained about the same number of jobs per second. Run one worker process and raise its `concurrency` instead. Other processes can still share the file, say a web server that enqueues. While another process holds the write lock, a call waits without blocking your process and retries every few milliseconds; after `busyTimeoutMs` (default 5 s) it throws `SQLITE_BUSY`. SQLite has no queue for its lock, so under heavy contention a call can still wait much longer than others ([#45](https://github.com/ckuudee/durable-job-queue/issues/45)).
+
 ### Enqueue jobs
 
 ```ts
