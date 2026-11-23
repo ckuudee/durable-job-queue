@@ -285,13 +285,18 @@ export async function databaseSettings(backend: Backend): Promise<Record<string,
     // the case every worker process is in.
     const target = await createTarget("sqlite");
     try {
-      const store = (await openStorage(target)) as unknown as { db: Database.Database; close(): Promise<void> };
+      const store = (await openStorage(target)) as unknown as {
+        db: Database.Database; busyTimeoutMs: number; close(): Promise<void>;
+      };
       const get = (name: string) => String(store.db.pragma(name, { simple: true }));
       const settings = {
         journal_mode: get("journal_mode"),
         synchronous: get("synchronous"),
         fullfsync: get("fullfsync"),
+        // 0 since #48: SQLite no longer waits for the lock itself; the store
+        // retries in its own loop for up to busyTimeoutMs instead.
         busy_timeout: get("busy_timeout"),
+        busyTimeoutMs: String(store.busyTimeoutMs),
       };
       await store.close();
       return settings;
