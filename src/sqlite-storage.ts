@@ -154,6 +154,18 @@ export interface SqliteStorageOptions {
   random?: () => number;
   /** Default lease length for jobs that don't set their own. Defaults to 30 s. */
   leaseMs?: number;
+  /**
+   * How long a call keeps retrying while another process holds the write lock,
+   * before it throws SQLITE_BUSY ("database is locked"). Defaults to 5 s.
+   */
+  busyTimeoutMs?: number;
+}
+
+const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
+
+/** True for SQLITE_BUSY and its extended codes (SQLITE_BUSY_SNAPSHOT, ...). */
+function isBusy(err: unknown): boolean {
+  return typeof (err as { code?: unknown })?.code === "string" && (err as { code: string }).code.startsWith("SQLITE_BUSY");
 }
 
 export class SqliteStorage implements Storage {
@@ -162,6 +174,7 @@ export class SqliteStorage implements Storage {
   private readonly retry: RetryPolicy;
   private readonly random: () => number;
   private readonly defaultLeaseMs: number;
+  private readonly busyTimeoutMs: number;
 
   private readonly insertJob: Database.Statement;
   private readonly selectByKey: Database.Statement;
@@ -186,18 +199,22 @@ export class SqliteStorage implements Storage {
     retry,
     random = Math.random,
     leaseMs = DEFAULT_LEASE_MS,
+    busyTimeoutMs = DEFAULT_BUSY_TIMEOUT_MS,
   }: SqliteStorageOptions) {
     this.retry = { ...DEFAULT_RETRY_POLICY, ...retry };
     validateRetryPolicy(this.retry);
     assertLeaseMs(leaseMs);
+    if (!Number.isInteger(busyTimeoutMs) || busyTimeoutMs < 0) {
+      throw new RangeError("busyTimeoutMs must be a non-negative integer");
+    }
     this.now = now;
     this.random = random;
     this.defaultLeaseMs = leaseMs;
+    this.busyTimeoutMs = busyTimeoutMs;
 
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new Database(path);
-    // WAL lets readers and one writer coexist; busy_timeout makes competing
-    // processes wait for the write lock instead of failing immediately.
+    // WAL lets readers and one writer coexist.
     this.db.pragma("journal_mode = WAL");
     // FULL flushes every commit before it returns, so a job that enqueue()
     // reported as saved survives a power loss or OS crash. Set explicitly: the
@@ -205,13 +222,17 @@ export class SqliteStorage implements Storage {
     // can undo recent commits on power loss, while the connection that created
     // the file got FULL.
     this.db.pragma("synchronous = FULL");
-    this.db.pragma("busy_timeout = 5000");
+    // The constructor is synchronous, so setting up the schema waits for the
+    // write lock inside SQLite (busy_timeout). Every later call waits in
+    // withBusyRetry() instead, and SQLite's own wait is turned off.
+    this.db.pragma(`busy_timeout = ${busyTimeoutMs}`);
     try {
       this.initSchema(path);
     } catch (err) {
       this.db.close(); // a constructor that throws can't be close()d by the caller
       throw err;
     }
+    this.db.pragma("busy_timeout = 0");
 
     // ON CONFLICT DO NOTHING turns "key already used" into changes = 0 instead of
     // an error, atomically: when several processes insert the same key at once,
@@ -309,7 +330,7 @@ export class SqliteStorage implements Storage {
     // takes the write lock up front. That matters most for failTx below: it
     // starts with a SELECT, and a plain (deferred) transaction that reads and
     // then writes fails with SQLITE_BUSY_SNAPSHOT if another process wrote in
-    // between; busy_timeout does not retry that error. claimTx starts with a
+    // between, and has to start over. claimTx starts with a
     // write, so it would take the lock immediately anyway (tests confirm
     // removing .immediate() there changes nothing); it is kept for symmetry.
     this.claimTx = this.db.transaction((workerId: string, queue: string): JobRow | undefined => {
@@ -332,6 +353,36 @@ export class SqliteStorage implements Storage {
       }
       return this.selectById.get(id) as JobRow;
     });
+  }
+
+  /**
+   * Run `op`, retrying while another process holds the write lock (#45).
+   *
+   * SQLite has no queue for its write lock. With busy_timeout, a waiting
+   * connection sleeps inside SQLite in steps of up to 100 ms and checks the lock
+   * only between sleeps, while processes writing in a loop grab it the moment it
+   * frees; the waiter can lose for seconds and then throw SQLITE_BUSY. And
+   * better-sqlite3 is synchronous, so the whole process froze while it waited:
+   * a Worker's other slots and heartbeats stopped too, and leases lapsed.
+   *
+   * Here SQLite fails at once instead (busy_timeout = 0) and we wait 0-2 ms
+   * between attempts with the event loop free. Checking often makes catching
+   * the free lock far more likely, though still not guaranteed: this improves
+   * the odds, it is not a fair queue.
+   *
+   * Safe to repeat: `op` must be one statement or one transaction, and an
+   * attempt that fails with SQLITE_BUSY has written nothing.
+   */
+  private async withBusyRetry<T>(op: () => T): Promise<T> {
+    const deadline = performance.now() + this.busyTimeoutMs; // real time: `now` may be a test clock
+    for (;;) {
+      try {
+        return op();
+      } catch (err) {
+        if (!isBusy(err) || performance.now() >= deadline) throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 2));
+    }
   }
 
   /** Create the schema on a fresh file; refuse a file written by a different schema version. */
@@ -380,14 +431,20 @@ export class SqliteStorage implements Storage {
     if (json === undefined) throw new TypeError("payload must be JSON-serializable");
 
     const id = randomUUID();
-    const now = this.now();
-    const { changes } = this.insertJob.run(
-      id, queue, json, maxAttempts, now, resolveRunAt(now, runAt, delayMs), leaseMs, idempotencyKey ?? null,
-    );
-    if (changes === 1) return toJob(this.selectById.get(id) as JobRow);
+    // Insert and read back are retried separately: retrying both together after
+    // the insert succeeded would insert the same id twice.
+    const { changes } = await this.withBusyRetry(() => {
+      const now = this.now(); // read per attempt, so a long wait doesn't backdate the job
+      return this.insertJob.run(
+        id, queue, json, maxAttempts, now, resolveRunAt(now, runAt, delayMs), leaseMs, idempotencyKey ?? null,
+      );
+    });
+    if (changes === 1) return toJob(await this.withBusyRetry(() => this.selectById.get(id) as JobRow));
 
     // Nothing inserted: another call already holds this (queue, key).
-    const existing = this.selectByKey.get(queue, idempotencyKey) as JobRow | undefined;
+    const existing = await this.withBusyRetry(
+      () => this.selectByKey.get(queue, idempotencyKey) as JobRow | undefined,
+    );
     if (!existing) throw new Error("insert was ignored but no job holds the idempotency key");
     if (canonicalize(JSON.parse(existing.payload)) !== canonicalize(JSON.parse(json))) {
       throw new IdempotencyConflictError(queue, idempotencyKey as string);
@@ -397,45 +454,48 @@ export class SqliteStorage implements Storage {
 
   async claim(queue: string, workerId: string): Promise<Job | null> {
     assertStorableIdentifier("workerId", workerId);
-    const row = this.claimTx.immediate(workerId, queue);
+    const row = await this.withBusyRetry(() => this.claimTx.immediate(workerId, queue));
     return row ? toJob(row) : null;
   }
 
   async heartbeat(id: string, leaseToken: string): Promise<Job> {
-    const row = this.extendLease.get(this.now(), id, leaseToken) as JobRow | undefined;
+    const row = await this.withBusyRetry(
+      () => this.extendLease.get(this.now(), id, leaseToken) as JobRow | undefined,
+    );
     if (!row) throw notHeldError(id);
     return toJob(row);
   }
 
   async complete(id: string, leaseToken: string): Promise<void> {
-    const { changes } = this.markCompleted.run(this.now(), id, leaseToken);
+    const { changes } = await this.withBusyRetry(() => this.markCompleted.run(this.now(), id, leaseToken));
     if (changes === 0) throw notHeldError(id);
   }
 
   async fail(id: string, leaseToken: string, error: string): Promise<Job> {
-    return toJob(this.failTx.immediate(id, leaseToken, toStorableText(error)));
+    const text = toStorableText(error);
+    return toJob(await this.withBusyRetry(() => this.failTx.immediate(id, leaseToken, text)));
   }
 
   async listDead(queue: string, limit = 100): Promise<Job[]> {
-    return (this.selectDead.all(queue, limit) as JobRow[]).map(toJob);
+    return (await this.withBusyRetry(() => this.selectDead.all(queue, limit) as JobRow[])).map(toJob);
   }
 
   async requeueDead(id: string): Promise<Job> {
-    const { changes } = this.markRequeued.run(this.now(), id);
+    const { changes } = await this.withBusyRetry(() => this.markRequeued.run(this.now(), id));
     if (changes === 0) throw new JobStateError(`job ${id} is not dead`);
-    return toJob(this.selectById.get(id) as JobRow);
+    return toJob(await this.withBusyRetry(() => this.selectById.get(id) as JobRow));
   }
 
   async get(id: string): Promise<Job | null> {
-    const row = this.selectById.get(id) as JobRow | undefined;
+    const row = await this.withBusyRetry(() => this.selectById.get(id) as JobRow | undefined);
     return row ? toJob(row) : null;
   }
 
   async stats(queue?: string): Promise<QueueStats[]> {
     const now = this.now();
-    const rows = (
-      queue === undefined ? this.selectAllStats.all({ now }) : this.selectQueueStats.all({ now, queue })
-    ) as StatsRow[];
+    const rows = (await this.withBusyRetry(() =>
+      queue === undefined ? this.selectAllStats.all({ now }) : this.selectQueueStats.all({ now, queue }),
+    )) as StatsRow[];
     return rows.map((row) => toQueueStats(row, now));
   }
 
