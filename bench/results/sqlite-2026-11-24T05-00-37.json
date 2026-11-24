@@ -1,0 +1,2148 @@
+{
+  "date": "2026-11-24T05:00:37.084Z",
+  "smoke": false,
+  "config": {
+    "repeats": 3,
+    "warmup": 1,
+    "drainJobs": 3000,
+    "lowBacklog": 1000,
+    "drainLayouts": [
+      {
+        "processes": 1,
+        "concurrency": 1
+      },
+      {
+        "processes": 1,
+        "concurrency": 4
+      },
+      {
+        "processes": 1,
+        "concurrency": 16
+      },
+      {
+        "processes": 2,
+        "concurrency": 1
+      },
+      {
+        "processes": 2,
+        "concurrency": 4
+      },
+      {
+        "processes": 2,
+        "concurrency": 16
+      },
+      {
+        "processes": 4,
+        "concurrency": 1
+      },
+      {
+        "processes": 4,
+        "concurrency": 4
+      },
+      {
+        "processes": 4,
+        "concurrency": 16
+      },
+      {
+        "processes": 8,
+        "concurrency": 1
+      },
+      {
+        "processes": 8,
+        "concurrency": 4
+      },
+      {
+        "processes": 8,
+        "concurrency": 16
+      }
+    ],
+    "enqueueJobs": 20000,
+    "producers": [
+      1,
+      4
+    ],
+    "latencyLayout": {
+      "processes": 4,
+      "concurrency": 4
+    },
+    "latencyFractions": [
+      0.25,
+      0.5,
+      0.75
+    ],
+    "latencyDurationMs": 60000,
+    "pollIntervals": [
+      1000,
+      10
+    ],
+    "backlogSizes": [
+      0,
+      100000,
+      1000000
+    ],
+    "backlogLayout": {
+      "processes": 4,
+      "concurrency": 4
+    },
+    "curveLayout": {
+      "processes": 4,
+      "concurrency": 4
+    },
+    "curveSizes": [
+      60000,
+      20000,
+      5000
+    ]
+  },
+  "machine": {
+    "cpu": "Apple M2",
+    "cores": 8,
+    "memoryGb": 8,
+    "os": "darwin 25.2.0",
+    "arch": "arm64",
+    "node": "v26.13.1"
+  },
+  "databases": {
+    "sqlite": "3.53.2"
+  },
+  "settings": {
+    "sqlite": {
+      "journal_mode": "wal",
+      "synchronous": "2",
+      "fullfsync": "0",
+      "busy_timeout": "0",
+      "busyTimeoutMs": "5000"
+    }
+  },
+  "commit": "9fb611fc841e6d9dde7518ffa6f1065849df2b02",
+  "uncommittedChanges": true,
+  "guaranteeBroken": false,
+  "results": {
+    "sqlite": {
+      "drain": [
+        {
+          "layout": {
+            "processes": 1,
+            "concurrency": 1
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 4854.368932038835,
+            "min": 4608.294930875576,
+            "max": 5263.1578947368425
+          },
+          "overallJobsPerSecond": {
+            "median": 4854.368932038835,
+            "min": 4838.709677419355,
+            "max": 5128.205128205128
+          },
+          "runs": [
+            {
+              "lowBacklog": 5263.1578947368425,
+              "overall": 5128.205128205128
+            },
+            {
+              "lowBacklog": 4608.294930875576,
+              "overall": 4838.709677419355
+            },
+            {
+              "lowBacklog": 4854.368932038835,
+              "overall": 4854.368932038835
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 1,
+            "concurrency": 4
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 5376.344086021505,
+            "min": 5235.602094240838,
+            "max": 5434.782608695652
+          },
+          "overallJobsPerSecond": {
+            "median": 5226.480836236934,
+            "min": 5199.306759098787,
+            "max": 5319.148936170212
+          },
+          "runs": [
+            {
+              "lowBacklog": 5235.602094240838,
+              "overall": 5319.148936170212
+            },
+            {
+              "lowBacklog": 5376.344086021505,
+              "overall": 5199.306759098787
+            },
+            {
+              "lowBacklog": 5434.782608695652,
+              "overall": 5226.480836236934
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 1,
+            "concurrency": 16
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 5154.639175257732,
+            "min": 5076.1421319796955,
+            "max": 5154.639175257732
+          },
+          "overallJobsPerSecond": {
+            "median": 5008.347245409015,
+            "min": 4966.887417218543,
+            "max": 5199.306759098787
+          },
+          "runs": [
+            {
+              "lowBacklog": 5154.639175257732,
+              "overall": 5008.347245409015
+            },
+            {
+              "lowBacklog": 5154.639175257732,
+              "overall": 5199.306759098787
+            },
+            {
+              "lowBacklog": 5076.1421319796955,
+              "overall": 4966.887417218543
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 2,
+            "concurrency": 1
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 4950.495049504951,
+            "min": 4878.048780487805,
+            "max": 5555.555555555556
+          },
+          "overallJobsPerSecond": {
+            "median": 4643.962848297214,
+            "min": 4261.363636363636,
+            "max": 5434.782608695652
+          },
+          "runs": [
+            {
+              "lowBacklog": 5555.555555555556,
+              "overall": 5434.782608695652
+            },
+            {
+              "lowBacklog": 4878.048780487805,
+              "overall": 4261.363636363636
+            },
+            {
+              "lowBacklog": 4950.495049504951,
+              "overall": 4643.962848297214
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 2,
+            "concurrency": 4
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 5128.205128205128,
+            "min": 4545.454545454545,
+            "max": 5235.602094240838
+          },
+          "overallJobsPerSecond": {
+            "median": 4878.048780487805,
+            "min": 4552.352048558422,
+            "max": 5008.347245409015
+          },
+          "runs": [
+            {
+              "lowBacklog": 4545.454545454545,
+              "overall": 4552.352048558422
+            },
+            {
+              "lowBacklog": 5128.205128205128,
+              "overall": 5008.347245409015
+            },
+            {
+              "lowBacklog": 5235.602094240838,
+              "overall": 4878.048780487805
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 2,
+            "concurrency": 16
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 5025.125628140703,
+            "min": 4694.835680751174,
+            "max": 5405.405405405405
+          },
+          "overallJobsPerSecond": {
+            "median": 4893.964110929854,
+            "min": 4823.15112540193,
+            "max": 5217.391304347826
+          },
+          "runs": [
+            {
+              "lowBacklog": 5025.125628140703,
+              "overall": 4893.964110929854
+            },
+            {
+              "lowBacklog": 4694.835680751174,
+              "overall": 4823.15112540193
+            },
+            {
+              "lowBacklog": 5405.405405405405,
+              "overall": 5217.391304347826
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 4,
+            "concurrency": 1
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 4629.62962962963,
+            "min": 3521.1267605633802,
+            "max": 5050.50505050505
+          },
+          "overallJobsPerSecond": {
+            "median": 4724.4094488188975,
+            "min": 3105.590062111801,
+            "max": 4942.339373970346
+          },
+          "runs": [
+            {
+              "lowBacklog": 4629.62962962963,
+              "overall": 4724.4094488188975
+            },
+            {
+              "lowBacklog": 3521.1267605633802,
+              "overall": 3105.590062111801
+            },
+            {
+              "lowBacklog": 5050.50505050505,
+              "overall": 4942.339373970346
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 4,
+            "concurrency": 4
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 4950.495049504951,
+            "min": 4926.108374384236,
+            "max": 4975.124378109453
+          },
+          "overallJobsPerSecond": {
+            "median": 4687.5,
+            "min": 4687.5,
+            "max": 4807.692307692308
+          },
+          "runs": [
+            {
+              "lowBacklog": 4975.124378109453,
+              "overall": 4687.5
+            },
+            {
+              "lowBacklog": 4926.108374384236,
+              "overall": 4687.5
+            },
+            {
+              "lowBacklog": 4950.495049504951,
+              "overall": 4807.692307692308
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 4,
+            "concurrency": 16
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 4504.504504504504,
+            "min": 4329.004329004329,
+            "max": 4566.2100456621
+          },
+          "overallJobsPerSecond": {
+            "median": 4354.136429608127,
+            "min": 4285.714285714285,
+            "max": 4385.964912280701
+          },
+          "runs": [
+            {
+              "lowBacklog": 4566.2100456621,
+              "overall": 4385.964912280701
+            },
+            {
+              "lowBacklog": 4329.004329004329,
+              "overall": 4285.714285714285
+            },
+            {
+              "lowBacklog": 4504.504504504504,
+              "overall": 4354.136429608127
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 8,
+            "concurrency": 1
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 4504.504504504504,
+            "min": 4464.285714285715,
+            "max": 4566.2100456621
+          },
+          "overallJobsPerSecond": {
+            "median": 4431.314623338257,
+            "min": 4347.826086956522,
+            "max": 4497.751124437781
+          },
+          "runs": [
+            {
+              "lowBacklog": 4566.2100456621,
+              "overall": 4497.751124437781
+            },
+            {
+              "lowBacklog": 4464.285714285715,
+              "overall": 4347.826086956522
+            },
+            {
+              "lowBacklog": 4504.504504504504,
+              "overall": 4431.314623338257
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 8,
+            "concurrency": 4
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 4329.004329004329,
+            "min": 4255.31914893617,
+            "max": 4347.826086956522
+          },
+          "overallJobsPerSecond": {
+            "median": 4137.931034482759,
+            "min": 4048.582995951417,
+            "max": 4189.944134078212
+          },
+          "runs": [
+            {
+              "lowBacklog": 4329.004329004329,
+              "overall": 4137.931034482759
+            },
+            {
+              "lowBacklog": 4255.31914893617,
+              "overall": 4048.582995951417
+            },
+            {
+              "lowBacklog": 4347.826086956522,
+              "overall": 4189.944134078212
+            }
+          ]
+        },
+        {
+          "layout": {
+            "processes": 8,
+            "concurrency": 16
+          },
+          "lowBacklogJobsPerSecond": {
+            "median": 3448.2758620689656,
+            "min": 3278.688524590164,
+            "max": 3610.1083032490974
+          },
+          "overallJobsPerSecond": {
+            "median": 3229.2787944025836,
+            "min": 3211.9914346895075,
+            "max": 3546.099290780142
+          },
+          "runs": [
+            {
+              "lowBacklog": 3278.688524590164,
+              "overall": 3229.2787944025836
+            },
+            {
+              "lowBacklog": 3610.1083032490974,
+              "overall": 3546.099290780142
+            },
+            {
+              "lowBacklog": 3448.2758620689656,
+              "overall": 3211.9914346895075
+            }
+          ]
+        }
+      ],
+      "enqueue": [
+        {
+          "producers": 1,
+          "keyed": false,
+          "jobsPerSecond": {
+            "median": 13642.564802182811,
+            "min": 13395.847287340925,
+            "max": 13679.890560875512
+          },
+          "callMs": {
+            "p50": 0.0660829999999919,
+            "p95": 0.09104199999978846,
+            "p99": {
+              "median": 0.13412499999992633,
+              "min": 0.11612500000001091,
+              "max": 0.13683300000002419
+            },
+            "worstMax": 1.487374999999929
+          },
+          "runs": [
+            {
+              "jobsPerSecond": 13395.847287340925,
+              "callMs": {
+                "p50": 0.06766600000003109,
+                "p95": 0.09087499999998272,
+                "p99": 0.11612500000001091,
+                "max": 1.2041659999999865
+              }
+            },
+            {
+              "jobsPerSecond": 13642.564802182811,
+              "callMs": {
+                "p50": 0.0660829999999919,
+                "p95": 0.09104199999978846,
+                "p99": 0.13683300000002419,
+                "max": 1.487374999999929
+              }
+            },
+            {
+              "jobsPerSecond": 13679.890560875512,
+              "callMs": {
+                "p50": 0.06533299999999542,
+                "p95": 0.09133299999996325,
+                "p99": 0.13412499999992633,
+                "max": 1.3428750000000491
+              }
+            }
+          ]
+        },
+        {
+          "producers": 1,
+          "keyed": true,
+          "jobsPerSecond": {
+            "median": 13003.901170351106,
+            "min": 11614.401858304298,
+            "max": 13166.556945358789
+          },
+          "callMs": {
+            "p50": 0.06649999999990541,
+            "p95": 0.09712500000000546,
+            "p99": {
+              "median": 0.18541600000000358,
+              "min": 0.1535419999999874,
+              "max": 0.4569169999999758
+            },
+            "worstMax": 28.693291000000045
+          },
+          "runs": [
+            {
+              "jobsPerSecond": 11614.401858304298,
+              "callMs": {
+                "p50": 0.06850000000008549,
+                "p95": 0.14520799999999667,
+                "p99": 0.4569169999999758,
+                "max": 5.652083000000175
+              }
+            },
+            {
+              "jobsPerSecond": 13003.901170351106,
+              "callMs": {
+                "p50": 0.06512499999996635,
+                "p95": 0.09600000000000364,
+                "p99": 0.18541600000000358,
+                "max": 28.693291000000045
+              }
+            },
+            {
+              "jobsPerSecond": 13166.556945358789,
+              "callMs": {
+                "p50": 0.06649999999990541,
+                "p95": 0.09712500000000546,
+                "p99": 0.1535419999999874,
+                "max": 8.470250000000078
+              }
+            }
+          ]
+        },
+        {
+          "producers": 4,
+          "keyed": false,
+          "jobsPerSecond": {
+            "median": 5863.383172090296,
+            "min": 5772.005772005772,
+            "max": 12755.102040816326
+          },
+          "callMs": {
+            "p50": 0.06970799999999144,
+            "p95": 0.1454159999999547,
+            "p99": {
+              "median": 9.371250000000032,
+              "min": 8.240167000000042,
+              "max": 12.238207999999986
+            },
+            "worstMax": 1020.307
+          },
+          "runs": [
+            {
+              "jobsPerSecond": 5863.383172090296,
+              "callMs": {
+                "p50": 0.07054199999993216,
+                "p95": 0.1502500000000282,
+                "p99": 12.238207999999986,
+                "max": 188.59879100000012
+              }
+            },
+            {
+              "jobsPerSecond": 5772.005772005772,
+              "callMs": {
+                "p50": 0.06970799999999144,
+                "p95": 0.1454159999999547,
+                "p99": 9.371250000000032,
+                "max": 1020.307
+              }
+            },
+            {
+              "jobsPerSecond": 12755.102040816326,
+              "callMs": {
+                "p50": 0.06929200000013225,
+                "p95": 0.13149999999995998,
+                "p99": 8.240167000000042,
+                "max": 47.81533400000001
+              }
+            }
+          ]
+        },
+        {
+          "producers": 4,
+          "keyed": true,
+          "jobsPerSecond": {
+            "median": 12795.905310300705,
+            "min": 12307.692307692309,
+            "max": 13131.976362442547
+          },
+          "callMs": {
+            "p50": 0.06991600000014841,
+            "p95": 0.13870799999995143,
+            "p99": {
+              "median": 9.19679199999996,
+              "min": 8.170082999999977,
+              "max": 9.276707999999871
+            },
+            "worstMax": 102.95954100000006
+          },
+          "runs": [
+            {
+              "jobsPerSecond": 12795.905310300705,
+              "callMs": {
+                "p50": 0.06991600000014841,
+                "p95": 0.13870799999995143,
+                "p99": 9.276707999999871,
+                "max": 37.193083
+              }
+            },
+            {
+              "jobsPerSecond": 13131.976362442547,
+              "callMs": {
+                "p50": 0.06841699999995399,
+                "p95": 0.11020800000005693,
+                "p99": 8.170082999999977,
+                "max": 44.029375000000016
+              }
+            },
+            {
+              "jobsPerSecond": 12307.692307692309,
+              "callMs": {
+                "p50": 0.07016699999996945,
+                "p95": 0.16754200000002584,
+                "p99": 9.19679199999996,
+                "max": 102.95954100000006
+              }
+            }
+          ]
+        }
+      ],
+      "latency": [
+        {
+          "fraction": 0.25,
+          "perSecond": 1238,
+          "pollIntervalMs": 1000,
+          "claimWaitMs": {
+            "p50": 521,
+            "p95": 973,
+            "p99": {
+              "median": 996,
+              "min": 996,
+              "max": 997
+            },
+            "worstMax": 1019
+          },
+          "endToEndMs": {
+            "p50": 523.148681640625,
+            "p95": 976.087158203125,
+            "p99": {
+              "median": 1002.620361328125,
+              "min": 1001.478271484375,
+              "max": 1004.23095703125
+            },
+            "worstMax": 1151.474853515625
+          },
+          "mostUnfinished": 1246,
+          "runs": [
+            {
+              "claimWaitMs": {
+                "p50": 521,
+                "p95": 972,
+                "p99": 996,
+                "max": 1005
+              },
+              "endToEndMs": {
+                "p50": 523.40869140625,
+                "p95": 974.562255859375,
+                "p99": 1001.478271484375,
+                "max": 1138.400634765625
+              },
+              "producerMaxLagMs": 37.58642578125,
+              "maxUnfinished": 1242
+            },
+            {
+              "claimWaitMs": {
+                "p50": 521,
+                "p95": 973,
+                "p99": 996,
+                "max": 1010
+              },
+              "endToEndMs": {
+                "p50": 522.9013671875,
+                "p95": 976.087158203125,
+                "p99": 1002.620361328125,
+                "max": 1151.474853515625
+              },
+              "producerMaxLagMs": 12.970947265625,
+              "maxUnfinished": 1235
+            },
+            {
+              "claimWaitMs": {
+                "p50": 521,
+                "p95": 974,
+                "p99": 997,
+                "max": 1019
+              },
+              "endToEndMs": {
+                "p50": 523.148681640625,
+                "p95": 977.1728515625,
+                "p99": 1004.23095703125,
+                "max": 1150.75439453125
+              },
+              "producerMaxLagMs": 117.082275390625,
+              "maxUnfinished": 1246
+            }
+          ]
+        },
+        {
+          "fraction": 0.25,
+          "perSecond": 1238,
+          "pollIntervalMs": 10,
+          "claimWaitMs": {
+            "p50": 2,
+            "p95": 5,
+            "p99": {
+              "median": 9,
+              "min": 7,
+              "max": 17
+            },
+            "worstMax": 144
+          },
+          "endToEndMs": {
+            "p50": 2.69140625,
+            "p95": 8.9677734375,
+            "p99": {
+              "median": 19.7236328125,
+              "min": 13.54931640625,
+              "max": 37.6865234375
+            },
+            "worstMax": 341.16650390625
+          },
+          "mostUnfinished": 147,
+          "runs": [
+            {
+              "claimWaitMs": {
+                "p50": 2,
+                "p95": 5,
+                "p99": 9,
+                "max": 117
+              },
+              "endToEndMs": {
+                "p50": 2.69140625,
+                "p95": 8.9677734375,
+                "p99": 19.7236328125,
+                "max": 341.16650390625
+              },
+              "producerMaxLagMs": 56.6962890625,
+              "maxUnfinished": 124
+            },
+            {
+              "claimWaitMs": {
+                "p50": 2,
+                "p95": 5,
+                "p99": 7,
+                "max": 14
+              },
+              "endToEndMs": {
+                "p50": 2.67529296875,
+                "p95": 8.411865234375,
+                "p99": 13.54931640625,
+                "max": 49.93212890625
+              },
+              "producerMaxLagMs": 7.130859375,
+              "maxUnfinished": 17
+            },
+            {
+              "claimWaitMs": {
+                "p50": 2,
+                "p95": 6,
+                "p99": 17,
+                "max": 144
+              },
+              "endToEndMs": {
+                "p50": 2.73193359375,
+                "p95": 10.807861328125,
+                "p99": 37.6865234375,
+                "max": 244.24072265625
+              },
+              "producerMaxLagMs": 103.201904296875,
+              "maxUnfinished": 147
+            }
+          ]
+        },
+        {
+          "fraction": 0.5,
+          "perSecond": 2475,
+          "pollIntervalMs": 1000,
+          "claimWaitMs": {
+            "p50": 542,
+            "p95": 987,
+            "p99": {
+              "median": 1460,
+              "min": 1173,
+              "max": 2887
+            },
+            "worstMax": 3433
+          },
+          "endToEndMs": {
+            "p50": 547.5556640625,
+            "p95": 995.464599609375,
+            "p99": {
+              "median": 1546.141357421875,
+              "min": 1241.353515625,
+              "max": 3888.19189453125
+            },
+            "worstMax": 6384
+          },
+          "mostUnfinished": 9278,
+          "runs": [
+            {
+              "claimWaitMs": {
+                "p50": 542,
+                "p95": 985,
+                "p99": 1460,
+                "max": 1609
+              },
+              "endToEndMs": {
+                "p50": 547.5556640625,
+                "p95": 995.464599609375,
+                "p99": 1546.141357421875,
+                "max": 2086.25244140625
+              },
+              "producerMaxLagMs": 184,
+              "maxUnfinished": 3931
+            },
+            {
+              "claimWaitMs": {
+                "p50": 528,
+                "p95": 987,
+                "p99": 1173,
+                "max": 1371
+              },
+              "endToEndMs": {
+                "p50": 539.4140625,
+                "p95": 992.60595703125,
+                "p99": 1241.353515625,
+                "max": 1647.434326171875
+              },
+              "producerMaxLagMs": 62.77783203125,
+              "maxUnfinished": 3318
+            },
+            {
+              "claimWaitMs": {
+                "p50": 573,
+                "p95": 1825,
+                "p99": 2887,
+                "max": 3433
+              },
+              "endToEndMs": {
+                "p50": 576.626220703125,
+                "p95": 2433.25244140625,
+                "p99": 3888.19189453125,
+                "max": 6384
+              },
+              "producerMaxLagMs": 998.77783203125,
+              "maxUnfinished": 9278
+            }
+          ]
+        },
+        {
+          "fraction": 0.5,
+          "perSecond": 2475,
+          "pollIntervalMs": 10,
+          "claimWaitMs": {
+            "p50": 2,
+            "p95": 48,
+            "p99": {
+              "median": 703,
+              "min": 432,
+              "max": 1501
+            },
+            "worstMax": 1676
+          },
+          "endToEndMs": {
+            "p50": 3.050537109375,
+            "p95": 76.80810546875,
+            "p99": {
+              "median": 1038.4443359375,
+              "min": 1004.787841796875,
+              "max": 1891.5859375
+            },
+            "worstMax": 3523.656494140625
+          },
+          "mostUnfinished": 4878,
+          "runs": [
+            {
+              "claimWaitMs": {
+                "p50": 2,
+                "p95": 48,
+                "p99": 703,
+                "max": 898
+              },
+              "endToEndMs": {
+                "p50": 3.080810546875,
+                "p95": 76.80810546875,
+                "p99": 1038.4443359375,
+                "max": 2281.80810546875
+              },
+              "producerMaxLagMs": 896.848388671875,
+              "maxUnfinished": 3240
+            },
+            {
+              "claimWaitMs": {
+                "p50": 2,
+                "p95": 738,
+                "p99": 1501,
+                "max": 1676
+              },
+              "endToEndMs": {
+                "p50": 3.050537109375,
+                "p95": 799.45458984375,
+                "p99": 1891.5859375,
+                "max": 3523.656494140625
+              },
+              "producerMaxLagMs": 989.80810546875,
+              "maxUnfinished": 4878
+            },
+            {
+              "claimWaitMs": {
+                "p50": 2,
+                "p95": 8,
+                "p99": 432,
+                "max": 457
+              },
+              "endToEndMs": {
+                "p50": 2.919189453125,
+                "p95": 11.86865234375,
+                "p99": 1004.787841796875,
+                "max": 1848.333251953125
+              },
+              "producerMaxLagMs": 936.9091796875,
+              "maxUnfinished": 2649
+            }
+          ]
+        },
+        {
+          "fraction": 0.75,
+          "perSecond": 3713,
+          "pollIntervalMs": 1000,
+          "claimWaitMs": {
+            "p50": 576,
+            "p95": 942,
+            "p99": {
+              "median": 988,
+              "min": 971,
+              "max": 1114
+            },
+            "worstMax": 1207
+          },
+          "endToEndMs": {
+            "p50": 580.286865234375,
+            "p95": 944.95458984375,
+            "p99": {
+              "median": 991.449462890625,
+              "min": 976.654296875,
+              "max": 1129.9052734375
+            },
+            "worstMax": 1374.683837890625
+          },
+          "mostUnfinished": 4412,
+          "runs": [
+            {
+              "claimWaitMs": {
+                "p50": 576,
+                "p95": 959,
+                "p99": 1114,
+                "max": 1207
+              },
+              "endToEndMs": {
+                "p50": 580.286865234375,
+                "p95": 964.174560546875,
+                "p99": 1129.9052734375,
+                "max": 1374.683837890625
+              },
+              "producerMaxLagMs": 148.791259765625,
+              "maxUnfinished": 4412
+            },
+            {
+              "claimWaitMs": {
+                "p50": 601,
+                "p95": 927,
+                "p99": 971,
+                "max": 1010
+              },
+              "endToEndMs": {
+                "p50": 606.195556640625,
+                "p95": 929.73095703125,
+                "p99": 976.654296875,
+                "max": 1174.12060546875
+              },
+              "producerMaxLagMs": 28.41943359375,
+              "maxUnfinished": 3723
+            },
+            {
+              "claimWaitMs": {
+                "p50": 522,
+                "p95": 942,
+                "p99": 988,
+                "max": 1007
+              },
+              "endToEndMs": {
+                "p50": 526.77490234375,
+                "p95": 944.95458984375,
+                "p99": 991.449462890625,
+                "max": 1198.862060546875
+              },
+              "producerMaxLagMs": 68.8349609375,
+              "maxUnfinished": 3714
+            }
+          ]
+        },
+        {
+          "fraction": 0.75,
+          "perSecond": 3713,
+          "pollIntervalMs": 10,
+          "claimWaitMs": {
+            "p50": 3,
+            "p95": 2514,
+            "p99": {
+              "median": 2721,
+              "min": 2243,
+              "max": 2815
+            },
+            "worstMax": 3022
+          },
+          "endToEndMs": {
+            "p50": 4.34228515625,
+            "p95": 2624.323974609375,
+            "p99": {
+              "median": 2989.776611328125,
+              "min": 2554.89111328125,
+              "max": 3149.778076171875
+            },
+            "worstMax": 4185.289306640625
+          },
+          "mostUnfinished": 11252,
+          "runs": [
+            {
+              "claimWaitMs": {
+                "p50": 3,
+                "p95": 2514,
+                "p99": 2815,
+                "max": 3022
+              },
+              "endToEndMs": {
+                "p50": 4.005126953125,
+                "p95": 2693.75927734375,
+                "p99": 3149.778076171875,
+                "max": 4185.289306640625
+              },
+              "producerMaxLagMs": 408.667236328125,
+              "maxUnfinished": 11252
+            },
+            {
+              "claimWaitMs": {
+                "p50": 3,
+                "p95": 1881,
+                "p99": 2243,
+                "max": 2589
+              },
+              "endToEndMs": {
+                "p50": 4.34228515625,
+                "p95": 1965.079345703125,
+                "p99": 2554.89111328125,
+                "max": 3263.53369140625
+              },
+              "producerMaxLagMs": 506.03564453125,
+              "maxUnfinished": 9543
+            },
+            {
+              "claimWaitMs": {
+                "p50": 3,
+                "p95": 2536,
+                "p99": 2721,
+                "max": 2915
+              },
+              "endToEndMs": {
+                "p50": 4.461669921875,
+                "p95": 2624.323974609375,
+                "p99": 2989.776611328125,
+                "max": 3770.5068359375
+              },
+              "producerMaxLagMs": 488.736328125,
+              "maxUnfinished": 10874
+            }
+          ]
+        }
+      ],
+      "backlog": [
+        {
+          "seeded": 0,
+          "jobsPerSecond": {
+            "median": 5291.005291005291,
+            "min": 5208.333333333333,
+            "max": 5291.005291005291
+          },
+          "runs": [
+            5291.005291005291,
+            5208.333333333333,
+            5291.005291005291
+          ]
+        },
+        {
+          "seeded": 100000,
+          "jobsPerSecond": {
+            "median": 5235.602094240838,
+            "min": 5076.1421319796955,
+            "max": 5263.1578947368425
+          },
+          "plan": "CO-ROUTINE (subquery-4)\nCOMPOUND QUERY\nLEFT-MOST SUBQUERY\nCO-ROUTINE (subquery-1)\nSEARCH jobs USING INDEX idx_jobs_claim (queue=? AND status=? AND run_at<?)\nSCAN (subquery-1)\nUNION ALL\nCO-ROUTINE (subquery-3)\nSEARCH jobs USING INDEX idx_jobs_claim (queue=? AND status=?)\nSCAN (subquery-3)\nSCAN (subquery-4)\nUSE TEMP B-TREE FOR ORDER BY",
+          "runs": [
+            5235.602094240838,
+            5076.1421319796955,
+            5263.1578947368425
+          ]
+        },
+        {
+          "seeded": 1000000,
+          "jobsPerSecond": {
+            "median": 5208.333333333333,
+            "min": 5208.333333333333,
+            "max": 5263.1578947368425
+          },
+          "plan": "CO-ROUTINE (subquery-4)\nCOMPOUND QUERY\nLEFT-MOST SUBQUERY\nCO-ROUTINE (subquery-1)\nSEARCH jobs USING INDEX idx_jobs_claim (queue=? AND status=? AND run_at<?)\nSCAN (subquery-1)\nUNION ALL\nCO-ROUTINE (subquery-3)\nSEARCH jobs USING INDEX idx_jobs_claim (queue=? AND status=?)\nSCAN (subquery-3)\nSCAN (subquery-4)\nUSE TEMP B-TREE FOR ORDER BY",
+          "runs": [
+            5208.333333333333,
+            5208.333333333333,
+            5263.1578947368425
+          ]
+        }
+      ],
+      "curve": {
+        "layout": {
+          "processes": 4,
+          "concurrency": 4
+        },
+        "sizes": [
+          {
+            "size": 60000,
+            "failedRuns": 0,
+            "of": 4,
+            "curve": [
+              {
+                "pending": 59500,
+                "jobsPerSecond": 4739.336492890995
+              },
+              {
+                "pending": 58500,
+                "jobsPerSecond": 5208.333333333333
+              },
+              {
+                "pending": 57500,
+                "jobsPerSecond": 5319.148936170212
+              },
+              {
+                "pending": 56500,
+                "jobsPerSecond": 5464.48087431694
+              },
+              {
+                "pending": 55500,
+                "jobsPerSecond": 5464.48087431694
+              },
+              {
+                "pending": 54500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 53500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 52500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 51500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 50500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 49500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 48500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 47500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 46500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 45500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 44500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 43500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 42500,
+                "jobsPerSecond": 5464.48087431694
+              },
+              {
+                "pending": 41500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 40500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 39500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 38500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 37500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 36500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 35500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 34500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 33500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 32500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 31500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 30500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 29500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 28500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 27500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 26500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 25500,
+                "jobsPerSecond": 5434.782608695652
+              },
+              {
+                "pending": 24500,
+                "jobsPerSecond": 5464.48087431694
+              },
+              {
+                "pending": 23500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 22500,
+                "jobsPerSecond": 5464.48087431694
+              },
+              {
+                "pending": 21500,
+                "jobsPerSecond": 5494.505494505494
+              },
+              {
+                "pending": 20500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 19500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 18500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 17500,
+                "jobsPerSecond": 5524.861878453039
+              },
+              {
+                "pending": 16500,
+                "jobsPerSecond": 5617.9775280898875
+              },
+              {
+                "pending": 15500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 14500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 13500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 12500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 11500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 10500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 9500,
+                "jobsPerSecond": 5555.555555555556
+              },
+              {
+                "pending": 8500,
+                "jobsPerSecond": 5617.9775280898875
+              },
+              {
+                "pending": 7500,
+                "jobsPerSecond": 5617.9775280898875
+              },
+              {
+                "pending": 6500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 5500,
+                "jobsPerSecond": 5617.9775280898875
+              },
+              {
+                "pending": 4500,
+                "jobsPerSecond": 5617.9775280898875
+              },
+              {
+                "pending": 3500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 2500,
+                "jobsPerSecond": 5586.592178770949
+              },
+              {
+                "pending": 1500,
+                "jobsPerSecond": 5586.592178770949
+              }
+            ],
+            "runs": [
+              [
+                {
+                  "pending": 59500,
+                  "jobsPerSecond": 4694.835680751174
+                },
+                {
+                  "pending": 58500,
+                  "jobsPerSecond": 5208.333333333333
+                },
+                {
+                  "pending": 57500,
+                  "jobsPerSecond": 5291.005291005291
+                },
+                {
+                  "pending": 56500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 55500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 54500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 53500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 52500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 51500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 50500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 49500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 48500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 47500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 46500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 45500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 44500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 43500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 42500,
+                  "jobsPerSecond": 5208.333333333333
+                },
+                {
+                  "pending": 41500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 40500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 39500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 38500,
+                  "jobsPerSecond": 1356.85210312076
+                },
+                {
+                  "pending": 37500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 36500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 35500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 34500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 33500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 32500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 31500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 30500,
+                  "jobsPerSecond": 1259.4458438287154
+                },
+                {
+                  "pending": 29500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 28500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 27500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 26500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 25500,
+                  "jobsPerSecond": 5434.782608695652
+                },
+                {
+                  "pending": 24500,
+                  "jobsPerSecond": 5405.405405405405
+                },
+                {
+                  "pending": 23500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 22500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 21500,
+                  "jobsPerSecond": 5208.333333333333
+                },
+                {
+                  "pending": 20500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 19500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 18500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 17500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 16500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 15500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 14500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 13500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 12500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 11500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 10500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 9500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 8500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 7500,
+                  "jobsPerSecond": 5291.005291005291
+                },
+                {
+                  "pending": 6500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 5500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 4500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 3500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 2500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 1500,
+                  "jobsPerSecond": 5586.592178770949
+                }
+              ],
+              [
+                {
+                  "pending": 59500,
+                  "jobsPerSecond": 4761.9047619047615
+                },
+                {
+                  "pending": 58500,
+                  "jobsPerSecond": 5208.333333333333
+                },
+                {
+                  "pending": 57500,
+                  "jobsPerSecond": 5376.344086021505
+                },
+                {
+                  "pending": 56500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 55500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 54500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 53500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 52500,
+                  "jobsPerSecond": 5181.347150259067
+                },
+                {
+                  "pending": 51500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 50500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 49500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 48500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 47500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 46500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 45500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 44500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 43500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 42500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 41500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 40500,
+                  "jobsPerSecond": 5649.717514124294
+                },
+                {
+                  "pending": 39500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 38500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 37500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 36500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 35500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 34500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 33500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 32500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 31500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 30500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 29500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 28500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 27500,
+                  "jobsPerSecond": 5405.405405405405
+                },
+                {
+                  "pending": 26500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 25500,
+                  "jobsPerSecond": 5208.333333333333
+                },
+                {
+                  "pending": 24500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 23500,
+                  "jobsPerSecond": 5434.782608695652
+                },
+                {
+                  "pending": 22500,
+                  "jobsPerSecond": 5347.593582887701
+                },
+                {
+                  "pending": 21500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 20500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 19500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 18500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 17500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 16500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 15500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 14500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 13500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 12500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 11500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 10500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 9500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 8500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 7500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 6500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 5500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 4500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 3500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 2500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 1500,
+                  "jobsPerSecond": 5586.592178770949
+                }
+              ],
+              [
+                {
+                  "pending": 59500,
+                  "jobsPerSecond": 4739.336492890995
+                },
+                {
+                  "pending": 58500,
+                  "jobsPerSecond": 5208.333333333333
+                },
+                {
+                  "pending": 57500,
+                  "jobsPerSecond": 5319.148936170212
+                },
+                {
+                  "pending": 56500,
+                  "jobsPerSecond": 5263.1578947368425
+                },
+                {
+                  "pending": 55500,
+                  "jobsPerSecond": 5291.005291005291
+                },
+                {
+                  "pending": 54500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 53500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 52500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 51500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 50500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 49500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 48500,
+                  "jobsPerSecond": 5434.782608695652
+                },
+                {
+                  "pending": 47500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 46500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 45500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 44500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 43500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 42500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 41500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 40500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 39500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 38500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 37500,
+                  "jobsPerSecond": 4901.9607843137255
+                },
+                {
+                  "pending": 36500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 35500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 34500,
+                  "jobsPerSecond": 5464.48087431694
+                },
+                {
+                  "pending": 33500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 32500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 31500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 30500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 29500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 28500,
+                  "jobsPerSecond": 5208.333333333333
+                },
+                {
+                  "pending": 27500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 26500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 25500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 24500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 23500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 22500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 21500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 20500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 19500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 18500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 17500,
+                  "jobsPerSecond": 5494.505494505494
+                },
+                {
+                  "pending": 16500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 15500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 14500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 13500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 12500,
+                  "jobsPerSecond": 5649.717514124294
+                },
+                {
+                  "pending": 11500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 10500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 9500,
+                  "jobsPerSecond": 5555.555555555556
+                },
+                {
+                  "pending": 8500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 7500,
+                  "jobsPerSecond": 5649.717514124294
+                },
+                {
+                  "pending": 6500,
+                  "jobsPerSecond": 5524.861878453039
+                },
+                {
+                  "pending": 5500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 4500,
+                  "jobsPerSecond": 5617.9775280898875
+                },
+                {
+                  "pending": 3500,
+                  "jobsPerSecond": 5586.592178770949
+                },
+                {
+                  "pending": 2500,
+                  "jobsPerSecond": 5649.717514124294
+                },
+                {
+                  "pending": 1500,
+                  "jobsPerSecond": 5617.9775280898875
+                }
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
